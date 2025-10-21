@@ -1,10 +1,8 @@
-import os
-
 from .base import *
 
-print(DEBUG)
-
-if DEBUG == True:
+if ENVIRONMENT == "development":
     from .development import *
+    print("Development environment")
 else:
     from .production import *
+    print("Production environment")
