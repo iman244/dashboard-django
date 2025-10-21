@@ -1,10 +1,15 @@
 from .base import *
 
+CSRF_TRUSTED_ORIGINS = ["https://medicdashboard-django.golden-horde.ir"]
+
 ALLOWED_HOSTS = ['*']
 
 CORS_ALLOWED_ORIGINS = [
     "https://medicdashboard-nextjs.golden-horde.ir",
 ]
+
+STATIC_URL = 'static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 DATABASES = {
     'default': {
