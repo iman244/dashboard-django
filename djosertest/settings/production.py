@@ -1,11 +1,11 @@
 from .base import *
 
-CSRF_TRUSTED_ORIGINS = ["https://medicdashboard-django.golden-horde.ir"]
+CSRF_TRUSTED_ORIGINS = ["http://194.60.231.201:8080"]
 
 ALLOWED_HOSTS = ['*']
 
 CORS_ALLOWED_ORIGINS = [
-    "https://medicdashboard-nextjs.golden-horde.ir",
+    "http://194.60.231.201:8080",
 ]
 
 STATIC_URL = 'static/'
