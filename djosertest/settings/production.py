@@ -1,11 +1,15 @@
 from .base import *
 
-CSRF_TRUSTED_ORIGINS = ["http://194.60.231.201:8001", "http://194.60.231.201:3001"]
+CSRF_TRUSTED_ORIGINS = [
+    "https://medicdashboard-django.liara.run",
+    "https://medicdashboard-nextjs.liara.run",
+]
 
 ALLOWED_HOSTS = ['*']
 
 CORS_ALLOWED_ORIGINS = [
-    "http://194.60.231.201:3001",
+    "https://medicdashboard-django.liara.run",
+    "https://medicdashboard-nextjs.liara.run",
 ]
 
 STATIC_URL = 'static/'
