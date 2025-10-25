@@ -2,7 +2,7 @@ from .base import *
 
 if ENVIRONMENT == "development":
     from .development import *
-    print("Development environment")
+    print("ENVIRONMENT: Development")
 else:
     from .production import *
-    print("Production environment")
+    print("ENVIRONMENT: Production")
