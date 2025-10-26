@@ -39,7 +39,7 @@ jobs:
           
           # Stop existing containers
           echo "🛑 Stopping existing containers..."
-          docker-compose down || true
+          docker compose down || true
           
           # Clone or update repository
           if [ -d ".git" ]; then
@@ -52,7 +52,7 @@ jobs:
           
           # Build and start containers
           echo "🔨 Building and starting containers..."
-          docker-compose up -d --build
+          docker compose up -d --build
           
           # Wait for database to be ready
           echo "⏳ Waiting for database to be ready..."
@@ -60,15 +60,15 @@ jobs:
           
           # Check database connection
           echo "🔍 Checking database connection..."
-          docker-compose exec -T web python manage.py check --database default
+          docker compose exec -T web python manage.py check --database default
           
           # Run Django migrations
           echo "🗄️ Running Django migrations..."
-          docker-compose exec -T web python manage.py migrate
+          docker compose exec -T web python manage.py migrate
           
           # Create superuser if it doesn't exist (using environment variables)
           echo "👤 Checking for superuser..."
-          docker-compose exec -T web python manage.py shell -c "
+          docker compose exec -T web python manage.py shell -c "
           import os
           from django.contrib.auth import get_user_model
           User = get_user_model()
@@ -84,11 +84,11 @@ jobs:
           
           # Collect static files
           echo "📦 Collecting static files..."
-          docker-compose exec -T web python manage.py collectstatic --noinput
+          docker compose exec -T web python manage.py collectstatic --noinput
           
           # Show running containers
           echo "📊 Checking container status..."
-          docker-compose ps
+          docker compose ps
           
           echo "✅ Deployment completed successfully!"
           echo "🌐 Your app should be available at: http://87.107.111.36:8000"
