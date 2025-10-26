@@ -24,8 +24,11 @@ jobs:
           # Set up environment variables
           export DB_NAME=medicdashboard
           export DB_USER=postgres
-          export DB_PASSWORD=${DB_PASSWORD:-qwer123456}
-          export SECRET_KEY=${SECRET_KEY:-your-super-secret-key-change-this-in-production}
+          export DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+          export SECRET_KEY=${{ secrets.SECRET_KEY }}
+          export ADMIN_USERNAME=${{ secrets.ADMIN_USERNAME }}
+          export ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL }}
+          export ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
           export DEBUG=False
           export ALLOWED_HOSTS=87.107.111.36,localhost,127.0.0.1
           
@@ -53,11 +56,31 @@ jobs:
           
           # Wait for database to be ready
           echo "⏳ Waiting for database to be ready..."
-          sleep 15
+          sleep 20
+          
+          # Check database connection
+          echo "🔍 Checking database connection..."
+          docker-compose exec -T web python manage.py check --database default
           
           # Run Django migrations
           echo "🗄️ Running Django migrations..."
           docker-compose exec -T web python manage.py migrate
+          
+          # Create superuser if it doesn't exist (using environment variables)
+          echo "👤 Checking for superuser..."
+          docker-compose exec -T web python manage.py shell -c "
+          import os;
+          from django.contrib.auth import get_user_model;
+          User = get_user_model();
+          admin_username = os.getenv('ADMIN_USERNAME', 'admin');
+          admin_email = os.getenv('ADMIN_EMAIL', 'admin@example.com');
+          admin_password = os.getenv('ADMIN_PASSWORD');
+          if admin_password and not User.objects.filter(username=admin_username).exists():
+              User.objects.create_superuser(admin_username, admin_email, admin_password);
+              print(f'✅ Superuser created: {admin_username}');
+          else:
+              print('✅ Superuser already exists or no password provided');
+          "
           
           # Collect static files
           echo "📦 Collecting static files..."
