@@ -69,17 +69,17 @@ jobs:
           # Create superuser if it doesn't exist (using environment variables)
           echo "👤 Checking for superuser..."
           docker-compose exec -T web python manage.py shell -c "
-          import os;
-          from django.contrib.auth import get_user_model;
-          User = get_user_model();
-          admin_username = os.getenv('ADMIN_USERNAME', 'admin');
-          admin_email = os.getenv('ADMIN_EMAIL', 'admin@example.com');
-          admin_password = os.getenv('ADMIN_PASSWORD');
+          import os
+          from django.contrib.auth import get_user_model
+          User = get_user_model()
+          admin_username = os.getenv('ADMIN_USERNAME', 'admin')
+          admin_email = os.getenv('ADMIN_EMAIL', 'admin@example.com')
+          admin_password = os.getenv('ADMIN_PASSWORD')
           if admin_password and not User.objects.filter(username=admin_username).exists():
-              User.objects.create_superuser(admin_username, admin_email, admin_password);
-              print(f'✅ Superuser created: {admin_username}');
+              User.objects.create_superuser(admin_username, admin_email, admin_password)
+              print('✅ Superuser created: ' + admin_username)
           else:
-              print('✅ Superuser already exists or no password provided');
+              print('✅ Superuser already exists or no password provided')
           "
           
           # Collect static files
