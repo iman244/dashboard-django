@@ -52,7 +52,7 @@ jobs:
           
           # Build and start containers
           echo "🔨 Building and starting containers..."
-          docker compose up -d --build
+          docker compose up -d --build --quiet-pull
           
           # Wait for database to be ready
           echo "⏳ Waiting for database to be ready..."
@@ -60,11 +60,11 @@ jobs:
           
           # Check database connection
           echo "🔍 Checking database connection..."
-          docker compose exec -T web python manage.py check --database default
+          docker compose exec -T web python manage.py check --database default --verbosity=0
           
           # Run Django migrations
           echo "🗄️ Running Django migrations..."
-          docker compose exec -T web python manage.py migrate
+          docker compose exec -T web python manage.py migrate --verbosity=0
           
           # Create superuser if it doesn't exist (using environment variables)
           echo "👤 Checking for superuser..."
@@ -75,16 +75,22 @@ jobs:
           admin_username = os.getenv('ADMIN_USERNAME', 'admin')
           admin_email = os.getenv('ADMIN_EMAIL', 'admin@example.com')
           admin_password = os.getenv('ADMIN_PASSWORD')
+          print(f'Admin username: {admin_username}')
+          print(f'Admin email: {admin_email}')
+          print(f'Password provided: {bool(admin_password)}')
+          print(f'User exists: {User.objects.filter(username=admin_username).exists()}')
           if admin_password and not User.objects.filter(username=admin_username).exists():
               User.objects.create_superuser(admin_username, admin_email, admin_password)
               print('✅ Superuser created: ' + admin_username)
+          elif User.objects.filter(username=admin_username).exists():
+              print('✅ Superuser already exists')
           else:
-              print('✅ Superuser already exists or no password provided')
+              print('❌ No password provided for superuser creation')
           "
           
           # Collect static files
           echo "📦 Collecting static files..."
-          docker compose exec -T web python manage.py collectstatic --noinput
+          docker compose exec -T web python manage.py collectstatic --noinput --verbosity=0
           
           # Show running containers
           echo "📊 Checking container status..."
