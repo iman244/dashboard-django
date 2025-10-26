@@ -3,6 +3,9 @@ from .base import *
 CSRF_TRUSTED_ORIGINS = [
     "https://medicdashboard-django.liara.run",
     "https://medicdashboard-nextjs.liara.run",
+    "http://87.107.111.36:8000",  # Django API
+    "http://87.107.111.36:3000",  # Next.js app
+    "http://localhost:3000",      # Local development
 ]
 
 ALLOWED_HOSTS = ['*']
@@ -10,7 +13,12 @@ ALLOWED_HOSTS = ['*']
 CORS_ALLOWED_ORIGINS = [
     "https://medicdashboard-django.liara.run",
     "https://medicdashboard-nextjs.liara.run",
+    "http://87.107.111.36:3000",  # Next.js app on same server
+    "http://localhost:3000",      # Local development
 ]
+
+# Allow all origins for development (you can restrict this later)
+CORS_ALLOW_ALL_ORIGINS = True
 
 STATIC_URL = 'static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
