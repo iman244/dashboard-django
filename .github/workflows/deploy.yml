@@ -24,13 +24,13 @@ jobs:
           # Set up environment variables
           export DB_NAME=medicdashboard
           export DB_USER=postgres
-          export DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-          export SECRET_KEY=${{ secrets.SECRET_KEY }}
-          export ADMIN_USERNAME=${{ secrets.ADMIN_USERNAME }}
-          export ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL }}
-          export ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
+          export DB_PASSWORD="${{ secrets.DB_PASSWORD }}"
+          export SECRET_KEY="${{ secrets.SECRET_KEY }}"
+          export ADMIN_USERNAME="${{ secrets.ADMIN_USERNAME }}"
+          export ADMIN_EMAIL="${{ secrets.ADMIN_EMAIL }}"
+          export ADMIN_PASSWORD="${{ secrets.ADMIN_PASSWORD }}"
           export DEBUG=False
-          export ALLOWED_HOSTS=87.107.111.36,localhost,127.0.0.1
+          export ALLOWED_HOSTS="87.107.111.36,localhost,127.0.0.1"
           
           # Create app directory
           APP_DIR="/opt/medical-dashboard"
