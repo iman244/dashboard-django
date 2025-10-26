@@ -50,20 +50,17 @@ jobs:
             git clone https://github.com/iman244/dashboard-django.git .
           fi
           
-          # Create temporary environment file for Docker Compose
-          echo "📝 Creating environment file for Docker Compose..."
-          echo "DB_NAME=medicdashboard" > .env
-          echo "DB_USER=postgres" >> .env
-          echo "DB_PASSWORD=${{ secrets.DB_PASSWORD }}" >> .env
-          echo "SECRET_KEY=${{ secrets.SECRET_KEY }}" >> .env
-          echo "ADMIN_USERNAME=${{ secrets.ADMIN_USERNAME }}" >> .env
-          echo "ADMIN_EMAIL=${{ secrets.ADMIN_EMAIL }}" >> .env
-          echo "ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}" >> .env
-          echo "DEBUG=False" >> .env
-          echo "ALLOWED_HOSTS=87.107.111.36,localhost,127.0.0.1" >> .env
-          
-          # Build and start containers
+          # Build and start containers with environment variables
           echo "🔨 Building and starting containers..."
+          DB_NAME=medicdashboard \
+          DB_USER=postgres \
+          DB_PASSWORD="${{ secrets.DB_PASSWORD }}" \
+          SECRET_KEY="${{ secrets.SECRET_KEY }}" \
+          ADMIN_USERNAME="${{ secrets.ADMIN_USERNAME }}" \
+          ADMIN_EMAIL="${{ secrets.ADMIN_EMAIL }}" \
+          ADMIN_PASSWORD="${{ secrets.ADMIN_PASSWORD }}" \
+          DEBUG=False \
+          ALLOWED_HOSTS="87.107.111.36,localhost,127.0.0.1" \
           docker compose up -d --build --quiet-pull
           
           # Wait for database to be ready
@@ -107,10 +104,6 @@ jobs:
           # Show running containers
           echo "📊 Checking container status..."
           docker compose ps
-          
-          # Clean up temporary environment file
-          echo "🧹 Cleaning up temporary files..."
-          rm -f .env
           
           echo "✅ Deployment completed successfully!"
           echo "🌐 Your app should be available at: http://87.107.111.36:8000"

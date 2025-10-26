@@ -29,6 +29,9 @@ services:
       - DB_HOST=db
       - DB_PORT=5432
       - SECRET_KEY=${SECRET_KEY}
+      - ADMIN_USERNAME=${ADMIN_USERNAME}
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
       - DEBUG=${DEBUG:-False}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-87.107.111.36,localhost,127.0.0.1}
     depends_on:
