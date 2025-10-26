@@ -1,0 +1,71 @@
+name: Deploy Medical Dashboard Django App
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Deploy to server
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_SSH_KEY }}
+        script: |
+          # Set up environment variables
+          export DB_NAME=medicdashboard
+          export DB_USER=postgres
+          export DB_PASSWORD=${DB_PASSWORD:-qwer123456}
+          export SECRET_KEY=${SECRET_KEY:-your-super-secret-key-change-this-in-production}
+          export DEBUG=False
+          export ALLOWED_HOSTS=87.107.111.36,localhost,127.0.0.1
+          
+          # Create app directory
+          APP_DIR="/opt/medical-dashboard"
+          mkdir -p $APP_DIR
+          cd $APP_DIR
+          
+          # Stop existing containers
+          echo "🛑 Stopping existing containers..."
+          docker-compose down || true
+          
+          # Clone or update repository
+          if [ -d ".git" ]; then
+            echo "📥 Pulling latest changes..."
+            git pull origin main
+          else
+            echo "📥 Cloning repository..."
+            git clone https://github.com/iman244/dashboard-django.git .
+          fi
+          
+          # Build and start containers
+          echo "🔨 Building and starting containers..."
+          docker-compose up -d --build
+          
+          # Wait for database to be ready
+          echo "⏳ Waiting for database to be ready..."
+          sleep 15
+          
+          # Run Django migrations
+          echo "🗄️ Running Django migrations..."
+          docker-compose exec -T web python manage.py migrate
+          
+          # Collect static files
+          echo "📦 Collecting static files..."
+          docker-compose exec -T web python manage.py collectstatic --noinput
+          
+          # Show running containers
+          echo "📊 Checking container status..."
+          docker-compose ps
+          
+          echo "✅ Deployment completed successfully!"
+          echo "🌐 Your app should be available at: http://87.107.111.36:8000"
