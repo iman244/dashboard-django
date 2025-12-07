@@ -30,4 +30,4 @@ RUN python manage.py collectstatic --noinput
 EXPOSE 8000
 
 # 9. Start server (using Daphne for ASGI, or use gunicorn for WSGI)
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "djosertest.wsgi:application"] 
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "medicaldashboard.wsgi:application"] 

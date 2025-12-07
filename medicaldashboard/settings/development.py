@@ -16,7 +16,11 @@ CORS_ALLOW_METHODS = [*default_methods]
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'medical-dashboard',
+        'USER': 'postgres',
+        'PASSWORD': 'qwer123456',
+        'HOST': 'localhost',
+        'PORT': '5432',
     }
 }

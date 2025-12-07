@@ -22,7 +22,7 @@ services:
     environment:
       - DJANGO_ENV=production
       - ENVIRONMENT=production
-      - DJANGO_SETTINGS_MODULE=djosertest.settings.production
+      - DJANGO_SETTINGS_MODULE=medicaldashboard.settings.production
       - DB_NAME=${DB_NAME:-medicdashboard}
       - DB_USER=${DB_USER:-postgres}
       - DB_PASSWORD=${DB_PASSWORD}
