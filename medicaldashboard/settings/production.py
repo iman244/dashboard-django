@@ -3,6 +3,7 @@ from .base import *
 CSRF_TRUSTED_ORIGINS = [
     "https://medicdashboard-django.liara.run",
     "https://medicdashboard-nextjs.liara.run",
+    "https://mainreport.ir",
     "http://87.107.111.36:8000",  # Django API
     "http://87.107.111.36:3000",  # Next.js app
     "http://localhost:3000",      # Local development
@@ -13,6 +14,7 @@ ALLOWED_HOSTS = ['*']
 CORS_ALLOWED_ORIGINS = [
     "https://medicdashboard-django.liara.run",
     "https://medicdashboard-nextjs.liara.run",
+    "https://mainreport.ir",
     "http://87.107.111.36:3000",  # Next.js app on same server
     "http://localhost:3000",      # Local development
 ]
