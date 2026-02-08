@@ -34,6 +34,19 @@ services:
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
       - DEBUG=${DEBUG:-False}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-87.107.111.36,mainreport.ir,localhost,127.0.0.1}
+
+    labels:
+      - "traefik.enable=true"
+
+      # Router
+      - "traefik.http.routers.mainreport.rule=Host(`api.mainreport.ir`)"
+      - "traefik.http.routers.mainreport.entrypoints=websecure"
+      - "traefik.http.routers.mainreport.tls=true"
+      - "traefik.http.routers.mainreport.tls.certresolver=le"
+
+      # Service
+      - "traefik.http.services.mainreport.loadbalancer.server.port=8000"
+      
     depends_on:
       - db
     volumes:
