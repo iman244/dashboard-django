@@ -39,13 +39,13 @@ services:
       - "traefik.enable=true"
 
       # Router
-      - "traefik.http.routers.mainreport.rule=Host(`api.mainreport.ir`)"
-      - "traefik.http.routers.mainreport.entrypoints=websecure"
-      - "traefik.http.routers.mainreport.tls=true"
-      - "traefik.http.routers.mainreport.tls.certresolver=le"
+      - "traefik.http.routers.apimainreport.rule=Host(`api.mainreport.ir`)"
+      - "traefik.http.routers.apimainreport.entrypoints=websecure"
+      - "traefik.http.routers.apimainreport.tls=true"
+      - "traefik.http.routers.apimainreport.tls.certresolver=le"
 
       # Service
-      - "traefik.http.services.mainreport.loadbalancer.server.port=8000"
+      - "traefik.http.services.apimainreport.loadbalancer.server.port=8000"
       
     depends_on:
       - db
