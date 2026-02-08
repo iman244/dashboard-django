@@ -54,6 +54,7 @@ services:
     networks:
       - django_network
       - external_network
+      - traefik-public
 
 volumes:
   postgres_data:
@@ -64,3 +65,5 @@ networks:
     driver: bridge
   external_network:
     driver: bridge
+  traefik-public:
+    external: true
