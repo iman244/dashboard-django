@@ -10,6 +10,7 @@ django-environ==0.12.0
 djangorestframework==3.16.1
 djangorestframework_simplejwt==5.5.1
 djoser==2.3.3
+drf-spectacular==0.30.0
 gunicorn==23.0.0
 idna==3.11
 oauthlib==3.3.1

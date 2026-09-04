@@ -1,0 +1,1066 @@
+openapi: 3.0.3
+info:
+  title: Medical Dashboard API
+  version: 1.0.0
+  description: API for the medical dashboard, including the Saderat bank health monitoring
+    reports.
+paths:
+  /api/auth/jwt/create/:
+    post:
+      operationId: auth_jwt_create_create
+      description: |-
+        Takes a set of user credentials and returns an access and refresh JSON web
+        token pair to prove the authentication of those credentials.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPairRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPairRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenObtainPairRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenObtainPair'
+          description: ''
+  /api/auth/jwt/refresh/:
+    post:
+      operationId: auth_jwt_refresh_create
+      description: |-
+        Takes a refresh type JSON web token and returns an access type JSON web
+        token if the refresh token is valid.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenRefreshRequest'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenRefresh'
+          description: ''
+  /api/auth/jwt/verify/:
+    post:
+      operationId: auth_jwt_verify_create
+      description: |-
+        Takes a token and indicates if it is valid.  This view provides no
+        information about a token's fitness for a particular use.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TokenVerifyRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TokenVerifyRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TokenVerifyRequest'
+        required: true
+      responses:
+        '200':
+          description: No response body
+  /api/auth/users/:
+    get:
+      operationId: auth_users_list
+      tags:
+      - auth
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+          description: ''
+    post:
+      operationId: auth_users_create
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreateRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserCreateRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserCreateRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserCreate'
+          description: ''
+  /api/auth/users/{id}/:
+    get:
+      operationId: auth_users_retrieve
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - auth
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+    put:
+      operationId: auth_users_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+    patch:
+      operationId: auth_users_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUserRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUserRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUserRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+    delete:
+      operationId: auth_users_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this user.
+        required: true
+      tags:
+      - auth
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/auth/users/activation/:
+    post:
+      operationId: auth_users_activation_create
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ActivationRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/ActivationRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/ActivationRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Activation'
+          description: ''
+  /api/auth/users/me/:
+    get:
+      operationId: auth_users_me_retrieve
+      tags:
+      - auth
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+    put:
+      operationId: auth_users_me_update
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UserRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UserRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+    patch:
+      operationId: auth_users_me_partial_update
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedUserRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedUserRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedUserRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+          description: ''
+    delete:
+      operationId: auth_users_me_destroy
+      tags:
+      - auth
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/auth/users/resend_activation/:
+    post:
+      operationId: auth_users_resend_activation_create
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendEmailResetRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SendEmailResetRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SendEmailResetRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendEmailReset'
+          description: ''
+  /api/auth/users/reset_password/:
+    post:
+      operationId: auth_users_reset_password_create
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendEmailResetRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SendEmailResetRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SendEmailResetRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendEmailReset'
+          description: ''
+  /api/auth/users/reset_password_confirm/:
+    post:
+      operationId: auth_users_reset_password_confirm_create
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirmRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirmRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PasswordResetConfirmRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasswordResetConfirm'
+          description: ''
+  /api/auth/users/reset_username/:
+    post:
+      operationId: auth_users_reset_username_create
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendEmailResetRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SendEmailResetRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SendEmailResetRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendEmailReset'
+          description: ''
+  /api/auth/users/reset_username_confirm/:
+    post:
+      operationId: auth_users_reset_username_confirm_create
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UsernameResetConfirmRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/UsernameResetConfirmRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/UsernameResetConfirmRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsernameResetConfirm'
+          description: ''
+  /api/auth/users/set_password/:
+    post:
+      operationId: auth_users_set_password_create
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetPasswordRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SetPasswordRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SetPasswordRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetPassword'
+          description: ''
+  /api/auth/users/set_username/:
+    post:
+      operationId: auth_users_set_username_create
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetUsernameRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SetUsernameRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SetUsernameRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SetUsername'
+          description: ''
+  /api/saderat-bank-health-monitoring/monitorings/:
+    get:
+      operationId: saderat_bank_health_monitoring_monitorings_list
+      summary: List monitoring reports
+      tags:
+      - saderat-bank-health-monitoring
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SaderatBankHealthMonitoringList'
+          description: ''
+    post:
+      operationId: saderat_bank_health_monitoring_monitorings_create
+      tags:
+      - saderat-bank-health-monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaderatBankHealthMonitoringListRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SaderatBankHealthMonitoringListRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SaderatBankHealthMonitoringListRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SaderatBankHealthMonitoringList'
+          description: ''
+  /api/saderat-bank-health-monitoring/monitorings/{id}/:
+    get:
+      operationId: saderat_bank_health_monitoring_monitorings_retrieve
+      summary: Retrieve a monitoring report with its parsed rows
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this saderat bank health monitoring.
+        required: true
+      tags:
+      - saderat-bank-health-monitoring
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SaderatBankHealthMonitoringRetrieve'
+          description: ''
+    put:
+      operationId: saderat_bank_health_monitoring_monitorings_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this saderat bank health monitoring.
+        required: true
+      tags:
+      - saderat-bank-health-monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaderatBankHealthMonitoringListRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/SaderatBankHealthMonitoringListRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SaderatBankHealthMonitoringListRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SaderatBankHealthMonitoringList'
+          description: ''
+    patch:
+      operationId: saderat_bank_health_monitoring_monitorings_partial_update
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this saderat bank health monitoring.
+        required: true
+      tags:
+      - saderat-bank-health-monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedSaderatBankHealthMonitoringListRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedSaderatBankHealthMonitoringListRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedSaderatBankHealthMonitoringListRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SaderatBankHealthMonitoringList'
+          description: ''
+    delete:
+      operationId: saderat_bank_health_monitoring_monitorings_destroy
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this saderat bank health monitoring.
+        required: true
+      tags:
+      - saderat-bank-health-monitoring
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: No response body
+  /api/saderat-bank-health-monitoring/monitorings/upload_excel/:
+    post:
+      operationId: saderat_bank_health_monitoring_monitorings_upload_excel_create
+      summary: Upload an Excel report
+      tags:
+      - saderat-bank-health-monitoring
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/SaderatBankHealthMonitoringUploadExcelRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadExcelResponse'
+          description: ''
+components:
+  schemas:
+    Activation:
+      type: object
+      properties:
+        uid:
+          type: string
+        token:
+          type: string
+      required:
+      - token
+      - uid
+    ActivationRequest:
+      type: object
+      properties:
+        uid:
+          type: string
+          minLength: 1
+        token:
+          type: string
+          minLength: 1
+      required:
+      - token
+      - uid
+    PasswordResetConfirm:
+      type: object
+      properties:
+        uid:
+          type: string
+        token:
+          type: string
+        new_password:
+          type: string
+      required:
+      - new_password
+      - token
+      - uid
+    PasswordResetConfirmRequest:
+      type: object
+      properties:
+        uid:
+          type: string
+          minLength: 1
+        token:
+          type: string
+          minLength: 1
+        new_password:
+          type: string
+          minLength: 1
+      required:
+      - new_password
+      - token
+      - uid
+    PatchedSaderatBankHealthMonitoringListRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        type:
+          $ref: '#/components/schemas/TypeEnum'
+    PatchedUserRequest:
+      type: object
+      properties:
+        email:
+          title: Email address
+          oneOf:
+          - type: string
+            format: email
+            maxLength: 254
+          - type: string
+            maxLength: 0
+    SaderatBankHealthMonitoringList:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 255
+        type:
+          $ref: '#/components/schemas/TypeEnum'
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - name
+      - type
+    SaderatBankHealthMonitoringListRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        type:
+          $ref: '#/components/schemas/TypeEnum'
+      required:
+      - name
+      - type
+    SaderatBankHealthMonitoringRetrieve:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 255
+        type:
+          $ref: '#/components/schemas/TypeEnum'
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        json:
+          nullable: true
+      required:
+      - created_at
+      - id
+      - name
+      - type
+    SaderatBankHealthMonitoringUploadExcelRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        type:
+          $ref: '#/components/schemas/TypeEnum'
+        file:
+          type: string
+          format: binary
+      required:
+      - file
+      - name
+      - type
+    SendEmailReset:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+      required:
+      - email
+    SendEmailResetRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          minLength: 1
+      required:
+      - email
+    SetPassword:
+      type: object
+      properties:
+        new_password:
+          type: string
+        current_password:
+          type: string
+      required:
+      - current_password
+      - new_password
+    SetPasswordRequest:
+      type: object
+      properties:
+        new_password:
+          type: string
+          minLength: 1
+        current_password:
+          type: string
+          minLength: 1
+      required:
+      - current_password
+      - new_password
+    SetUsername:
+      type: object
+      properties:
+        current_password:
+          type: string
+        new_username:
+          type: string
+          title: Username
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+      required:
+      - current_password
+      - new_username
+    SetUsernameRequest:
+      type: object
+      properties:
+        current_password:
+          type: string
+          minLength: 1
+        new_username:
+          type: string
+          minLength: 1
+          title: Username
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+      required:
+      - current_password
+      - new_username
+    TokenObtainPair:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+          readOnly: true
+      required:
+      - access
+      - refresh
+    TokenObtainPairRequest:
+      type: object
+      properties:
+        username:
+          type: string
+          writeOnly: true
+          minLength: 1
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - password
+      - username
+    TokenRefresh:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+      required:
+      - access
+    TokenRefreshRequest:
+      type: object
+      properties:
+        refresh:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - refresh
+    TokenVerifyRequest:
+      type: object
+      properties:
+        token:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - token
+    TypeEnum:
+      enum:
+      - step_1
+      - step_2
+      type: string
+      description: |-
+        * `step_1` - Step 1
+        * `step_2` - Step 2
+    UploadExcelResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+      - message
+    User:
+      type: object
+      properties:
+        email:
+          title: Email address
+          oneOf:
+          - type: string
+            format: email
+            maxLength: 254
+          - type: string
+            maxLength: 0
+        id:
+          type: integer
+          readOnly: true
+        username:
+          type: string
+          readOnly: true
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+      required:
+      - id
+      - username
+    UserCreate:
+      type: object
+      properties:
+        email:
+          title: Email address
+          oneOf:
+          - type: string
+            format: email
+            maxLength: 254
+          - type: string
+            maxLength: 0
+        username:
+          type: string
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        id:
+          type: integer
+          readOnly: true
+      required:
+      - id
+      - username
+    UserCreateRequest:
+      type: object
+      properties:
+        email:
+          title: Email address
+          oneOf:
+          - type: string
+            format: email
+            maxLength: 254
+          - type: string
+            maxLength: 0
+        username:
+          type: string
+          minLength: 1
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - password
+      - username
+    UserRequest:
+      type: object
+      properties:
+        email:
+          title: Email address
+          oneOf:
+          - type: string
+            format: email
+            maxLength: 254
+          - type: string
+            maxLength: 0
+    UsernameResetConfirm:
+      type: object
+      properties:
+        new_username:
+          type: string
+          title: Username
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+      required:
+      - new_username
+    UsernameResetConfirmRequest:
+      type: object
+      properties:
+        new_username:
+          type: string
+          minLength: 1
+          title: Username
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+      required:
+      - new_username
+  securitySchemes:
+    jwtAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: Token-based authentication with required prefix "JWT"
