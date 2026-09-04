@@ -14,6 +14,7 @@ Including another URLconf
     1. Import the include() function: from django.urls import include, path
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
+from django.conf import settings
 from django.contrib import admin
 from django.urls import path, include
 from drf_spectacular.views import (
@@ -25,9 +26,18 @@ from drf_spectacular.views import (
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('api.urls')),
-    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
-    path('api/schema/swagger-ui/',
-         SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
-    path('api/schema/redoc/',
-         SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
 ]
+
+# The schema lists every endpoint and payload of the API, so it is only
+# served locally. The exported openapi.yaml in the repo root is what the
+# Next.js client generates its types from, so nothing depends on these
+# routes being reachable in production.
+if settings.ENVIRONMENT == 'development':
+    urlpatterns += [
+        path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
+        path('api/schema/swagger-ui/',
+             SpectacularSwaggerView.as_view(url_name='schema'),
+             name='swagger-ui'),
+        path('api/schema/redoc/',
+             SpectacularRedocView.as_view(url_name='schema'), name='redoc'),
+    ]
