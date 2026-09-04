@@ -2,12 +2,13 @@ import json
 import pandas as pd
 import numpy as np
 from rest_framework import serializers
+from rest_framework.validators import UniqueTogetherValidator
 from .models import SaderatBankHealthMonitoring
 
 class SaderatBankHealthMonitoringListSerializer(serializers.ModelSerializer):
     class Meta:
         model = SaderatBankHealthMonitoring
-        fields = ['id', 'name', 'created_at']
+        fields = ['id', 'name', 'type', 'created_at']
         
 class SaderatBankHealthMonitoringRetrieveSerializer(serializers.ModelSerializer):
     class Meta:
@@ -16,10 +17,21 @@ class SaderatBankHealthMonitoringRetrieveSerializer(serializers.ModelSerializer)
         
 class SaderatBankHealthMonitoringUploadExcelSerializer(serializers.Serializer):
     name = serializers.CharField()
+    type = serializers.ChoiceField(
+        choices=SaderatBankHealthMonitoring.Type.choices)
     file = serializers.FileField()
+
+    class Meta:
+        validators = [
+            UniqueTogetherValidator(
+                queryset=SaderatBankHealthMonitoring.objects.all(),
+                fields=('name', 'type'),
+            ),
+        ]
     
     def create(self, validated_data):
         name = validated_data['name']
+        type = validated_data['type']
         file = validated_data['file']
         
         try:
@@ -38,6 +50,7 @@ class SaderatBankHealthMonitoringUploadExcelSerializer(serializers.Serializer):
         
         instance = SaderatBankHealthMonitoring.objects.create(
             name=name,
+            type=type,
             json=json_data
         )
         
