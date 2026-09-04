@@ -971,8 +971,14 @@ components:
           readOnly: true
           description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
             only.
+        is_staff:
+          type: boolean
+          readOnly: true
+          title: Staff status
+          description: Designates whether the user can log into this admin site.
       required:
       - id
+      - is_staff
       - username
     UserCreate:
       type: object

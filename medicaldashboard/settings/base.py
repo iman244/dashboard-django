@@ -146,4 +146,11 @@ SIMPLE_JWT = {
 
 DJOSER = {
     'TOKEN_MODEL': None,
+    # the client needs `is_staff` to gate admin-only UI; both keys are
+    # overridden because `user` serves /users/ and /users/{id}/ while
+    # `current_user` serves /users/me/
+    'SERIALIZERS': {
+        'user': 'api.serializers.UserSerializer',
+        'current_user': 'api.serializers.UserSerializer',
+    },
 }
