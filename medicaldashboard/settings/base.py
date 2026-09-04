@@ -42,6 +42,7 @@ INSTALLED_APPS = [
 
     'corsheaders',
     'rest_framework',
+    'drf_spectacular',
     'djoser',
 
     'api',
@@ -124,6 +125,19 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
          'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Medical Dashboard API',
+    'DESCRIPTION': 'API for the medical dashboard, including the Saderat bank '
+                   'health monitoring reports.',
+    'VERSION': '1.0.0',
+    # the schema endpoint itself is not part of the documented API
+    'SERVE_INCLUDE_SCHEMA': False,
+    # separate request/response components, so read-only fields such as
+    # `id` and `created_at` stay out of the generated request types
+    'COMPONENT_SPLIT_REQUEST': True,
 }
 
 SIMPLE_JWT = {
