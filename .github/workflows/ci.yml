@@ -1,0 +1,87 @@
+# Test, then deploy — in that order, in one workflow.
+#
+# These were two files, and review caught the flaw: two workflows triggered by
+# the same push run in parallel, so a merge that broke the tests deployed
+# anyway while CI was still reporting it. One workflow with `needs` makes the
+# ordering structural rather than a matter of timing.
+#
+# The deployment logic itself lives in mainreport-platform/deploy.sh; the job
+# below hands over the configuration this repository owns and names the
+# service. See that repo's README, "Deployment".
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Superseded pull request runs are worth cancelling; a deploy is not. Killing
+  # one mid-flight leaves the server in whatever state it had reached.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # settings/development.py points at localhost:5432 with these credentials,
+    # so the service container matches it rather than the settings being
+    # parameterised for CI.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: qwer123456
+          POSTGRES_DB: medical-dashboard
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      # Matches the Dockerfile's python:3.11-slim, so a dependency that breaks
+      # on the version actually deployed fails here rather than on the server.
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - run: python manage.py test
+        env:
+          DJANGO_SETTINGS_MODULE: medicaldashboard.settings.development
+
+  deploy:
+    needs: test
+    # Never from a pull request, and never from a branch: a manual run on a
+    # feature branch would otherwise deploy that branch over production.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1.2.5
+        env:
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          ALLOWED_HOSTS: ${{ secrets.ALLOWED_HOSTS }}
+          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          # Forwarded into the remote shell, where deploy.sh writes them into
+          # /app/.env. DEBUG is absent on purpose: this app reads it without a
+          # bool cast, so the string "False" is truthy and would turn debug ON.
+          envs: DB_PASSWORD,SECRET_KEY,ALLOWED_HOSTS,ADMIN_USERNAME,ADMIN_EMAIL,ADMIN_PASSWORD
+          command_timeout: 30m
+          script: /app/deploy.sh django
