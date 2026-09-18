@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Runs the same suite as .github/workflows/check.yml before a push.
+# Runs the same suite as the `test` job in .github/workflows/ci.yml.
 #
 # Enable with:  git config core.hooksPath .githooks
 #
 # This is feedback, not a gate — it lives in your clone, not the repository,
-# and `git push --no-verify` skips it. check.yml is what actually protects
+# and `git push --no-verify` skips it. ci.yml is what actually protects
 # main; this only saves you the round trip.
 #
 # Needs a Postgres on localhost:5432 matching settings/development.py. If one
