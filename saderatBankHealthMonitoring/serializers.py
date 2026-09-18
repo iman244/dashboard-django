@@ -1,24 +1,50 @@
-import json
 import pandas as pd
-import numpy as np
 from rest_framework import serializers
 from rest_framework.validators import UniqueTogetherValidator
-from .models import SaderatBankHealthMonitoring
+from .models import MonitoringType, SaderatBankHealthMonitoring
+
+
+class MonitoringTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MonitoringType
+        fields = ['id', 'slug', 'name_en', 'name_fa']
+
+
+def monitoring_type_field():
+    """`type` on a monitoring, as the slug string the dashboard reads.
+
+    Declared on every monitoring serializer rather than left to ModelSerializer,
+    which would render the foreign key as its integer id and break the Next.js
+    client's `type === 'step_2'` checks. Keeping it in one place means a new
+    serializer cannot quietly regress that.
+    """
+    return serializers.SlugRelatedField(
+        slug_field='slug',
+        queryset=MonitoringType.objects.all(),
+    )
+
 
 class SaderatBankHealthMonitoringListSerializer(serializers.ModelSerializer):
+    type = monitoring_type_field()
+
     class Meta:
         model = SaderatBankHealthMonitoring
         fields = ['id', 'name', 'type', 'created_at']
-        
-class SaderatBankHealthMonitoringRetrieveSerializer(serializers.ModelSerializer):
+
+
+class SaderatBankHealthMonitoringRetrieveSerializer(
+        serializers.ModelSerializer):
+    type = monitoring_type_field()
+
     class Meta:
         model = SaderatBankHealthMonitoring
         fields = "__all__"
-        
-class SaderatBankHealthMonitoringUploadExcelSerializer(serializers.Serializer):
+
+
+class SaderatBankHealthMonitoringUploadExcelSerializer(
+        serializers.Serializer):
     name = serializers.CharField()
-    type = serializers.ChoiceField(
-        choices=SaderatBankHealthMonitoring.Type.choices)
+    type = monitoring_type_field()
     file = serializers.FileField()
 
     class Meta:
@@ -28,30 +54,31 @@ class SaderatBankHealthMonitoringUploadExcelSerializer(serializers.Serializer):
                 fields=('name', 'type'),
             ),
         ]
-    
+
     def create(self, validated_data):
         name = validated_data['name']
         type = validated_data['type']
         file = validated_data['file']
-        
+
         try:
             string_columns = {
                 'personel.کد ملی': str,
                 'تجمیع نتایج.کد ملی': str
             }
-            
+
             df = pd.read_excel(file, dtype=string_columns)
-            
+
             df = df.astype(object).where(pd.notnull(df), None)
             json_data = df.to_dict(orient="records")
-            
+
         except Exception as e:
-            raise serializers.ValidationError(f'Error reading Excel file: {str(e)}')
-        
+            raise serializers.ValidationError(
+                f'Error reading Excel file: {str(e)}')
+
         instance = SaderatBankHealthMonitoring.objects.create(
             name=name,
             type=type,
             json=json_data
         )
-        
+
         return instance

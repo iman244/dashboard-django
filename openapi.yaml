@@ -508,6 +508,155 @@ paths:
               schema:
                 $ref: '#/components/schemas/SetUsername'
           description: ''
+  /api/saderat-bank-health-monitoring/monitoring-types/:
+    get:
+      operationId: saderat_bank_health_monitoring_monitoring_types_list
+      summary: List monitoring types
+      tags:
+      - saderat-bank-health-monitoring
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MonitoringType'
+          description: ''
+    post:
+      operationId: saderat_bank_health_monitoring_monitoring_types_create
+      summary: Create a monitoring type
+      tags:
+      - saderat-bank-health-monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MonitoringTypeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MonitoringTypeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MonitoringTypeRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MonitoringType'
+          description: ''
+  /api/saderat-bank-health-monitoring/monitoring-types/{id}/:
+    get:
+      operationId: saderat_bank_health_monitoring_monitoring_types_retrieve
+      summary: Retrieve a monitoring type
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this monitoring type.
+        required: true
+      tags:
+      - saderat-bank-health-monitoring
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MonitoringType'
+          description: ''
+    put:
+      operationId: saderat_bank_health_monitoring_monitoring_types_update
+      summary: Replace a monitoring type
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this monitoring type.
+        required: true
+      tags:
+      - saderat-bank-health-monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MonitoringTypeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/MonitoringTypeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MonitoringTypeRequest'
+        required: true
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MonitoringType'
+          description: ''
+    patch:
+      operationId: saderat_bank_health_monitoring_monitoring_types_partial_update
+      summary: Update a monitoring type
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this monitoring type.
+        required: true
+      tags:
+      - saderat-bank-health-monitoring
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedMonitoringTypeRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedMonitoringTypeRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedMonitoringTypeRequest'
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MonitoringType'
+          description: ''
+    delete:
+      operationId: saderat_bank_health_monitoring_monitoring_types_destroy
+      summary: Delete a monitoring type
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: integer
+        description: A unique integer value identifying this monitoring type.
+        required: true
+      tags:
+      - saderat-bank-health-monitoring
+      security:
+      - jwtAuth: []
+      responses:
+        '204':
+          description: Deleted
+        '409':
+          description: The type is still used by monitoring reports.
   /api/saderat-bank-health-monitoring/monitorings/:
     get:
       operationId: saderat_bank_health_monitoring_monitorings_list
@@ -696,6 +845,47 @@ components:
       required:
       - token
       - uid
+    MonitoringType:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        slug:
+          type: string
+          maxLength: 16
+          pattern: ^[-a-zA-Z0-9_]+$
+        name_en:
+          type: string
+          maxLength: 64
+        name_fa:
+          type: string
+          maxLength: 64
+      required:
+      - id
+      - name_en
+      - name_fa
+      - slug
+    MonitoringTypeRequest:
+      type: object
+      properties:
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 16
+          pattern: ^[-a-zA-Z0-9_]+$
+        name_en:
+          type: string
+          minLength: 1
+          maxLength: 64
+        name_fa:
+          type: string
+          minLength: 1
+          maxLength: 64
+      required:
+      - name_en
+      - name_fa
+      - slug
     PasswordResetConfirm:
       type: object
       properties:
@@ -725,6 +915,22 @@ components:
       - new_password
       - token
       - uid
+    PatchedMonitoringTypeRequest:
+      type: object
+      properties:
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 16
+          pattern: ^[-a-zA-Z0-9_]+$
+        name_en:
+          type: string
+          minLength: 1
+          maxLength: 64
+        name_fa:
+          type: string
+          minLength: 1
+          maxLength: 64
     PatchedSaderatBankHealthMonitoringListRequest:
       type: object
       properties:
@@ -733,7 +939,8 @@ components:
           minLength: 1
           maxLength: 255
         type:
-          $ref: '#/components/schemas/TypeEnum'
+          type: string
+          minLength: 1
     PatchedUserRequest:
       type: object
       properties:
@@ -755,7 +962,7 @@ components:
           type: string
           maxLength: 255
         type:
-          $ref: '#/components/schemas/TypeEnum'
+          type: string
         created_at:
           type: string
           format: date-time
@@ -773,7 +980,8 @@ components:
           minLength: 1
           maxLength: 255
         type:
-          $ref: '#/components/schemas/TypeEnum'
+          type: string
+          minLength: 1
       required:
       - name
       - type
@@ -783,11 +991,11 @@ components:
         id:
           type: integer
           readOnly: true
+        type:
+          type: string
         name:
           type: string
           maxLength: 255
-        type:
-          $ref: '#/components/schemas/TypeEnum'
         created_at:
           type: string
           format: date-time
@@ -806,7 +1014,8 @@ components:
           type: string
           minLength: 1
         type:
-          $ref: '#/components/schemas/TypeEnum'
+          type: string
+          minLength: 1
         file:
           type: string
           format: binary
@@ -937,14 +1146,6 @@ components:
           minLength: 1
       required:
       - token
-    TypeEnum:
-      enum:
-      - step_1
-      - step_2
-      type: string
-      description: |-
-        * `step_1` - Step 1
-        * `step_2` - Step 2
     UploadExcelResponse:
       type: object
       properties:
