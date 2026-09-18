@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Runs the same suite as .github/workflows/check.yml before a push.
+#
+# Enable with:  git config core.hooksPath .githooks
+#
+# This is feedback, not a gate — it lives in your clone, not the repository,
+# and `git push --no-verify` skips it. check.yml is what actually protects
+# main; this only saves you the round trip.
+#
+# Needs a Postgres on localhost:5432 matching settings/development.py. If one
+# is not running the suite cannot run, and the hook says so and gets out of
+# the way rather than blocking the push.
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+PYTHON=./venv/bin/python
+[[ -x "$PYTHON" ]] || PYTHON=python3
+
+if ! "$PYTHON" -c 'import socket,sys; s=socket.socket(); s.settimeout(1); sys.exit(s.connect_ex(("127.0.0.1",5432)))' 2>/dev/null; then
+    echo "pre-push: no Postgres on localhost:5432 — skipping tests (CI will run them)"
+    exit 0
+fi
+
+echo "pre-push: running tests"
+DJANGO_SETTINGS_MODULE=medicaldashboard.settings.development "$PYTHON" manage.py test

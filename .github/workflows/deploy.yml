@@ -1,110 +1,45 @@
-name: Deploy Medical Dashboard Django App
+# Deploys the API by running the platform repo's deploy.sh over SSH.
+#
+# The deployment logic lives in mainreport-platform, not here, so this file
+# stays a caller: it hands over the configuration this repository owns and
+# names the service. See that repo's README, "Deployment".
+#
+# There is deliberately no pull_request trigger. The workflow this replaced had
+# one, which would have deployed every pull request over production.
+name: Deploy
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
+
+# Per-repository, so it cannot serialise against dashboard-nextjs — deploy.sh
+# takes a lock on the server for that. This only collapses a burst of merges
+# here into a single deploy of the newest commit.
+concurrency:
+  group: deploy
+  cancel-in-progress: true
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Deploy to server
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.SERVER_HOST }}
-        username: ${{ secrets.SERVER_USER }}
-        key: ${{ secrets.SERVER_SSH_KEY }}
-        script: |
-          # Set up environment variables
-          export DB_NAME=medicdashboard
-          export DB_USER=postgres
-          export DB_PASSWORD="${{ secrets.DB_PASSWORD }}"
-          export SECRET_KEY="${{ secrets.SECRET_KEY }}"
-          export ADMIN_USERNAME="${{ secrets.ADMIN_USERNAME }}"
-          export ADMIN_EMAIL="${{ secrets.ADMIN_EMAIL }}"
-          export ADMIN_PASSWORD="${{ secrets.ADMIN_PASSWORD }}"
-          export DEBUG=False
-          export ALLOWED_HOSTS="87.107.111.36,localhost,127.0.0.1"
-          
-          # Create app directory
-          APP_DIR="/opt/medical-dashboard"
-          mkdir -p $APP_DIR
-          cd $APP_DIR
-          
-          # Stop existing containers
-          echo "🛑 Stopping existing containers..."
-          docker compose down || true
-          
-          # Clone or update repository
-          if [ -d ".git" ]; then
-            echo "📥 Pulling latest changes..."
-            git pull origin main
-          else
-            echo "📥 Cloning repository..."
-            git clone https://github.com/iman244/dashboard-django.git .
-          fi
-          
-          # Build and start containers with environment variables
-          echo "🔨 Building and starting containers..."
-          DB_NAME=medicdashboard \
-          DB_USER=postgres \
-          DB_PASSWORD="${{ secrets.DB_PASSWORD }}" \
-          SECRET_KEY="${{ secrets.SECRET_KEY }}" \
-          ADMIN_USERNAME="${{ secrets.ADMIN_USERNAME }}" \
-          ADMIN_EMAIL="${{ secrets.ADMIN_EMAIL }}" \
-          ADMIN_PASSWORD="${{ secrets.ADMIN_PASSWORD }}" \
-          DEBUG=False \
-          ALLOWED_HOSTS="87.107.111.36,localhost,127.0.0.1" \
-          docker compose up -d --build --quiet-pull
-          
-          # Wait for database to be ready
-          echo "⏳ Waiting for database to be ready..."
-          sleep 20
-          
-          # Check database connection
-          echo "🔍 Checking database connection..."
-          docker compose exec -T web python manage.py check --database default --verbosity=0
-          
-          # Run Django migrations
-          echo "🗄️ Running Django migrations..."
-          docker compose exec -T web python manage.py migrate --verbosity=0
-          
-          # Create superuser if it doesn't exist (using environment variables)
-          echo "👤 Checking for superuser..."
-          docker compose exec -T web python manage.py shell -c "
-          import os
-          from django.contrib.auth import get_user_model
-          User = get_user_model()
-          admin_username = os.getenv('ADMIN_USERNAME', 'admin')
-          admin_email = os.getenv('ADMIN_EMAIL', 'admin@example.com')
-          admin_password = os.getenv('ADMIN_PASSWORD')
-          print(f'Admin username: {admin_username}')
-          print(f'Admin email: {admin_email}')
-          print(f'Password provided: {bool(admin_password)}')
-          print(f'User exists: {User.objects.filter(username=admin_username).exists()}')
-          if admin_password and not User.objects.filter(username=admin_username).exists():
-              User.objects.create_superuser(admin_username, admin_email, admin_password)
-              print('✅ Superuser created: ' + admin_username)
-          elif User.objects.filter(username=admin_username).exists():
-              print('✅ Superuser already exists')
-          else:
-              print('❌ No password provided for superuser creation')
-          "
-          
-          # Collect static files
-          echo "📦 Collecting static files..."
-          docker compose exec -T web python manage.py collectstatic --noinput --verbosity=0
-          
-          # Show running containers
-          echo "📊 Checking container status..."
-          docker compose ps
-          
-          echo "✅ Deployment completed successfully!"
-          echo "🌐 Your app should be available at: http://87.107.111.36:8000"
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1.2.5
+        env:
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          ALLOWED_HOSTS: ${{ secrets.ALLOWED_HOSTS }}
+          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          # Forwarded into the remote shell, where deploy.sh writes them into
+          # /app/.env. DEBUG is absent on purpose: this app reads it without a
+          # bool cast, so the string "False" is truthy and would turn debug ON.
+          envs: DB_PASSWORD,SECRET_KEY,ALLOWED_HOSTS,ADMIN_USERNAME,ADMIN_EMAIL,ADMIN_PASSWORD
+          command_timeout: 30m
+          script: /app/deploy.sh django
