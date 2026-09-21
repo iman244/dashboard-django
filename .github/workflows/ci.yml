@@ -84,4 +84,14 @@ jobs:
           # bool cast, so the string "False" is truthy and would turn debug ON.
           envs: DB_PASSWORD,SECRET_KEY,ALLOWED_HOSTS,ADMIN_USERNAME,ADMIN_EMAIL,ADMIN_PASSWORD
           command_timeout: 30m
-          script: /app/deploy.sh django
+          # /app is a clone of mainreport-platform, where deploy.sh lives. Nothing
+          # else updates it, so refresh it here: the script has to be current at
+          # the moment it runs, and it cannot update itself while bash is reading
+          # it. A hard reset rather than a pull because nobody is here to resolve
+          # a conflict; .env and .env.* are gitignored and survive it.
+          script: |
+            set -euo pipefail
+            git -C /app fetch --quiet origin main
+            git -C /app reset --quiet --hard origin/main
+            chmod +x /app/deploy.sh
+            /app/deploy.sh django
