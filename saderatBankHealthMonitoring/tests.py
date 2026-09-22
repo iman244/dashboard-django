@@ -8,7 +8,14 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from .models import MonitoringType, SaderatBankHealthMonitoring
+from django.db.utils import IntegrityError
+
+from .models import (
+    MonitoringType,
+    PatientEntry,
+    PatientEntryFile,
+    SaderatBankHealthMonitoring,
+)
 from .national_id import normalize_national_id
 from .schema import file_fields, find_field, validate_field_schema
 
@@ -45,7 +52,8 @@ class MonitoringTypeApiTests(APITestCase):
         self.assertEqual(
             response.data[0],
             {'id': self.step_1.id, 'slug': 'step_1',
-             'name_en': 'Step 1', 'name_fa': 'مرحله ۱'},
+             'name_en': 'Step 1', 'name_fa': 'مرحله ۱',
+             'field_schema': {}},
         )
 
     def test_member_cannot_write(self):
@@ -313,3 +321,74 @@ class NationalIdNormalizationTests(TestCase):
 
     def test_non_string_is_returned_unchanged(self):
         self.assertIsNone(normalize_national_id(None))
+
+
+class PatientEntryModelTests(APITestCase):
+    """Identity, cascade and the schema column."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.step_1 = MonitoringType.objects.get(slug='step_1')
+        cls.monitoring = SaderatBankHealthMonitoring.objects.create(
+            name='March', type=cls.step_1, json=[])
+
+    def test_field_schema_defaults_to_empty_dict(self):
+        self.assertEqual(self.step_1.field_schema, {})
+
+    def test_field_schema_rejects_invalid_document(self):
+        self.step_1.field_schema = {'version': 1, 'fields': [{'key': 'X'}]}
+        with self.assertRaises(DjangoValidationError):
+            self.step_1.full_clean()
+
+    def test_entry_national_id_is_normalized_on_save(self):
+        entry = PatientEntry.objects.create(
+            monitoring=self.monitoring, national_id='۰۰۱۲۳۴۵۶۷۸')
+        entry.refresh_from_db()
+        self.assertEqual(entry.national_id, '0012345678')
+
+    def test_duplicate_national_id_in_one_monitoring_is_rejected(self):
+        PatientEntry.objects.create(
+            monitoring=self.monitoring, national_id='0012345678')
+        with self.assertRaises(IntegrityError):
+            PatientEntry.objects.create(
+                monitoring=self.monitoring, national_id='0012345678')
+
+    def test_same_national_id_under_another_monitoring_is_allowed(self):
+        other = SaderatBankHealthMonitoring.objects.create(
+            name='April', type=self.step_1, json=[])
+        PatientEntry.objects.create(
+            monitoring=self.monitoring, national_id='0012345678')
+        PatientEntry.objects.create(
+            monitoring=other, national_id='0012345678')
+        self.assertEqual(PatientEntry.objects.count(), 2)
+
+    def test_deleting_a_monitoring_takes_its_entries(self):
+        entry = PatientEntry.objects.create(
+            monitoring=self.monitoring, national_id='0012345678')
+        PatientEntryFile.objects.create(
+            entry=entry, field_key='mri_image', key='entries/1/x.jpg',
+            original_name='x.jpg', content_type='image/jpeg', size=10)
+        self.monitoring.delete()
+        self.assertEqual(PatientEntry.objects.count(), 0)
+        self.assertEqual(PatientEntryFile.objects.count(), 0)
+
+    def test_excel_upload_is_unaffected_by_a_schema(self):
+        """The load-bearing constraint: a schema never gates Excel."""
+        self.step_1.field_schema = {
+            'version': 1,
+            'fields': [{
+                'key': 'mri_image', 'type': 'file',
+                'label_en': 'MRI', 'label_fa': 'ام‌آر‌آی',
+            }],
+        }
+        self.step_1.save()
+        User = get_user_model()
+        user = User.objects.create_user('op', 'op@example.com', 'pw')
+        self.client.force_authenticate(user)
+        response = self.client.post(
+            reverse('monitorings-upload-excel'),
+            {'name': 'Unrelated', 'type': 'step_1',
+             'file': excel_upload([{'a': 1}])},
+            format='multipart',
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)

@@ -7,7 +7,7 @@ from .models import MonitoringType, SaderatBankHealthMonitoring
 class MonitoringTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = MonitoringType
-        fields = ['id', 'slug', 'name_en', 'name_fa']
+        fields = ['id', 'slug', 'name_en', 'name_fa', 'field_schema']
 
 
 def monitoring_type_field():
