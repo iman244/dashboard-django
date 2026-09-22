@@ -95,3 +95,47 @@ jobs:
             git -C /app reset --quiet --hard origin/main
             chmod +x /app/deploy.sh
             /app/deploy.sh django
+
+      # A container can be "Up" and still answer 502. `docker compose ps` says
+      # nothing about HTTP, so the deploy above can report success while the
+      # site is unreachable -- which is exactly what happened on 2026-09-22,
+      # and nobody on this team can check from their own machine because the
+      # route to the server is filtered from Iran.
+      #
+      # Two vantage points, because they answer different questions. Inside the
+      # server isolates the application: if Traefik cannot reach Django over
+      # the loopback, no amount of network is to blame. From the runner is the
+      # only unfiltered view of the public address anyone here has.
+      - name: Does it actually serve? (from inside the server)
+        uses: appleboy/ssh-action@v1.2.5
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          command_timeout: 5m
+          script: |
+            # Not `set -e`: every host must be probed and reported, and a
+            # failing curl is the result, not an error to abort on.
+            set -uo pipefail
+            failed=0
+            for host in mainreport.ir api.mainreport.ir; do
+              code="$(curl -sS -o /dev/null -m 15 -w '%{http_code}' \
+                        -H "Host: ${host}" http://127.0.0.1/ 2>/dev/null || echo 000)"
+              echo "  ${host} -> ${code}"
+              # 2xx and 3xx both mean it served; the dashboard answers 307 to /
+              # because next-intl redirects to a locale.
+              case "$code" in 2??|3??) ;; *) failed=1 ;; esac
+            done
+            echo
+            echo "--- last 30 lines of django, in case it answered badly ---"
+            docker compose -f /app/compose.yml logs --tail=30 --no-color django 2>&1 || true
+            exit "$failed"
+
+      - name: Does it actually serve? (from the runner, outside Iran)
+        # Runs even when the check above failed, so one report shows both.
+        if: always()
+        run: |
+          for url in http://mainreport.ir/ http://api.mainreport.ir/; do
+            code="$(curl -sS -o /dev/null -m 25 -w '%{http_code}' "$url" 2>/dev/null || echo 000)"
+            echo "  ${url} -> ${code}"
+          done
