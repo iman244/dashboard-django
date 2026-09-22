@@ -127,7 +127,8 @@ jobs:
             probe() {
               local host="$1" path="$2" code
               code="$(curl -sS -o /dev/null -m 15 -w '%{http_code}' \
-                        -H "Host: ${host}" "http://127.0.0.1${path}" 2>/dev/null || echo 000)"
+                        -H "Host: ${host}" "http://127.0.0.1${path}" 2>/dev/null)"
+              code="${code:-000}"
               echo "  ${host}${path} -> ${code}"
               # 401/403 are successes here: something served and chose to
               # refuse. 000, 5xx and 404 on a path that should exist are not.
@@ -149,7 +150,8 @@ jobs:
             http://mainreport.ir/ \
             http://api.mainreport.ir/api/saderat-bank-health-monitoring/monitoring-types/
           do
-            code="$(curl -sS -o /dev/null -m 25 -w '%{http_code}' "$url" 2>/dev/null || echo 000)"
+            code="$(curl -sS -o /dev/null -m 25 -w '%{http_code}' "$url" 2>/dev/null)"
+            code="${code:-000}"
             echo "  ${url} -> ${code}"
           done
           # HTTPS is reported, never asserted: this stack has no TLS listener
@@ -158,6 +160,7 @@ jobs:
           # 2026-09-22 outage looked to users while every container was Up.
           echo "  --- https, for information ---"
           for url in https://mainreport.ir/ https://api.mainreport.ir/; do
-            code="$(curl -sS -o /dev/null -m 15 -w '%{http_code}' "$url" 2>/dev/null || echo 000)"
+            code="$(curl -sS -o /dev/null -m 15 -w '%{http_code}' "$url" 2>/dev/null)"
+            code="${code:-000}"
             echo "  ${url} -> ${code}"
           done
