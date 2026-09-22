@@ -520,3 +520,135 @@ class PresignTests(APITestCase):
         self.presign_put.side_effect = S3Unavailable('down')
         self.assertEqual(self.post().status_code,
                          status.HTTP_503_SERVICE_UNAVAILABLE)
+
+
+class PatientEntryApiTests(APITestCase):
+    """Entries are committed against what the bucket actually holds."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.type = MonitoringType.objects.create(
+            slug='imaging2', name_en='Imaging', name_fa='تصویربرداری',
+            field_schema={
+                'version': 1,
+                'fields': [{
+                    'key': 'mri_image', 'type': 'file',
+                    'label_en': 'MRI Image', 'label_fa': 'تصویر ام‌آر‌آی',
+                    'required': True, 'multiple': True,
+                    'accept': ['image/jpeg'], 'max_size_mb': 5,
+                    'max_count': 2,
+                }],
+            },
+        )
+        cls.monitoring = SaderatBankHealthMonitoring.objects.create(
+            name='March', type=cls.type, json=[])
+        User = get_user_model()
+        cls.user = User.objects.create_user('op2', 'op2@example.com', 'pw')
+
+    def setUp(self):
+        self.client.force_authenticate(self.user)
+        head = mock.patch(
+            'saderatBankHealthMonitoring.serializers.head_object',
+            return_value={'size': 1024, 'content_type': 'image/jpeg'})
+        self.head_object = head.start()
+        self.addCleanup(head.stop)
+        get = mock.patch(
+            'saderatBankHealthMonitoring.serializers.presign_get',
+            return_value='https://example.invalid/read')
+        get.start()
+        self.addCleanup(get.stop)
+
+    def file_payload(self, key='entries/1/0012345678/mri_image/abc.jpg'):
+        return {'field_key': 'mri_image', 'key': key,
+                'original_name': 'scan.jpg', 'content_type': 'image/jpeg',
+                'size': 1024}
+
+    def create(self, **overrides):
+        payload = {
+            'monitoring': self.monitoring.id,
+            'national_id': '0012345678',
+            'files': [self.file_payload()],
+        }
+        payload.update(overrides)
+        return self.client.post(
+            reverse('patient-entries-list'), payload, format='json')
+
+    def test_anonymous_is_refused(self):
+        self.client.force_authenticate(None)
+        self.assertEqual(self.create().status_code,
+                         status.HTTP_401_UNAUTHORIZED)
+
+    def test_creates_entry_with_files(self):
+        response = self.create()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(len(response.data['files']), 1)
+        self.assertEqual(response.data['files'][0]['url'],
+                         'https://example.invalid/read')
+
+    def test_missing_object_is_refused(self):
+        self.head_object.return_value = None
+        response = self.create()
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(PatientEntry.objects.count(), 0)
+
+    def test_declared_size_must_match_the_bucket(self):
+        """A client's claim about its own upload is never trusted."""
+        self.head_object.return_value = {'size': 999999,
+                                         'content_type': 'image/jpeg'}
+        response = self.create()
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(PatientEntry.objects.count(), 0)
+
+    def test_unknown_field_key_is_refused(self):
+        response = self.create(
+            files=[dict(self.file_payload(), field_key='nope')])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_max_count_is_enforced(self):
+        response = self.create(files=[
+            self.file_payload('entries/1/0012345678/mri_image/a.jpg'),
+            self.file_payload('entries/1/0012345678/mri_image/b.jpg'),
+            self.file_payload('entries/1/0012345678/mri_image/c.jpg'),
+        ])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_duplicate_national_id_conflicts(self):
+        self.create()
+        response = self.create(
+            files=[self.file_payload('entries/1/0012345678/mri_image/d.jpg')])
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertIn('id', response.data)
+
+    def test_persian_national_id_conflicts_with_its_ascii_twin(self):
+        """The whole reason normalization is server-side."""
+        self.create()
+        response = self.create(
+            national_id='۰۰۱۲۳۴۵۶۷۸',
+            files=[self.file_payload('entries/1/0012345678/mri_image/e.jpg')])
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+
+    def test_filter_by_monitoring_and_national_id(self):
+        self.create()
+        response = self.client.get(
+            reverse('patient-entries-list'),
+            {'monitoring': self.monitoring.id, 'national_id': '۰۰۱۲۳۴۵۶۷۸'})
+        self.assertEqual(len(response.data), 1)
+
+    def test_patch_replaces_the_file_set(self):
+        entry_id = self.create().data['id']
+        response = self.client.patch(
+            reverse('patient-entries-detail', args=[entry_id]),
+            {'files': [
+                self.file_payload('entries/1/0012345678/mri_image/new.jpg')]},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(PatientEntryFile.objects.count(), 1)
+        self.assertEqual(response.data['files'][0]['original_name'],
+                         'scan.jpg')
+
+    def test_delete_removes_entry_and_files(self):
+        entry_id = self.create().data['id']
+        self.client.delete(reverse('patient-entries-detail', args=[entry_id]))
+        self.assertEqual(PatientEntry.objects.count(), 0)
+        self.assertEqual(PatientEntryFile.objects.count(), 0)

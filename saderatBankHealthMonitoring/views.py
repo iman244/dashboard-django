@@ -1,4 +1,5 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError, transaction
 from django.db.models import ProtectedError
 from rest_framework import permissions, status, viewsets
 from .models import MonitoringType, PatientEntry, SaderatBankHealthMonitoring
@@ -9,7 +10,9 @@ from .serializers import (
     SaderatBankHealthMonitoringRetrieveSerializer,
     SaderatBankHealthMonitoringUploadExcelSerializer,
 )
+from .national_id import normalize_national_id
 from .serializers import (
+    PatientEntrySerializer,
     PresignRequestSerializer,
     SaderatBankHealthMonitoringListSerializer,
 )
@@ -124,6 +127,20 @@ class SaderatBankHealthMonitoringViewSet(viewsets.ModelViewSet):
         return Response({'message': 'Excel uploaded successfully'})
 
 
+@extend_schema_view(
+    list=extend_schema(summary='List patient entries'),
+    retrieve=extend_schema(summary='Retrieve a patient entry'),
+    create=extend_schema(
+        summary='Create a patient entry',
+        responses={
+            201: PatientEntrySerializer,
+            409: OpenApiResponse(
+                description='This patient already has an entry here.'),
+        },
+    ),
+    partial_update=extend_schema(summary='Update a patient entry'),
+    destroy=extend_schema(summary='Delete a patient entry'),
+)
 class PatientEntryViewSet(viewsets.ModelViewSet):
     """Per-patient entries against a monitoring's field_schema.
 
@@ -132,8 +149,45 @@ class PatientEntryViewSet(viewsets.ModelViewSet):
     """
 
     queryset = PatientEntry.objects.prefetch_related('files')
+    serializer_class = PatientEntrySerializer
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        monitoring = self.request.query_params.get('monitoring')
+        if monitoring:
+            queryset = queryset.filter(monitoring_id=monitoring)
+        national_id = self.request.query_params.get('national_id')
+        if national_id:
+            # Folded on the way in, exactly as it was folded on the way to the
+            # database, or a Persian-keyboard lookup would find nothing.
+            queryset = queryset.filter(
+                national_id=normalize_national_id(national_id))
+        return queryset
+
+    def create(self, request, *args, **kwargs):
+        # The unique constraint is the check; asking first would race a
+        # concurrent create. 409 rather than 400 so the client can offer to
+        # open the existing entry instead of showing a field error.
+        try:
+            # A savepoint, so the failed INSERT rolls back on its own and the
+            # surrounding transaction stays usable -- without it the lookup
+            # below raises TransactionManagementError instead of answering.
+            with transaction.atomic():
+                return super().create(request, *args, **kwargs)
+        except IntegrityError:
+            existing = PatientEntry.objects.filter(
+                monitoring_id=request.data.get('monitoring'),
+                national_id=normalize_national_id(
+                    str(request.data.get('national_id', ''))),
+            ).first()
+            return Response(
+                {'detail': 'This patient already has an entry for this '
+                           'monitoring.',
+                 'id': existing.id if existing else None},
+                status=status.HTTP_409_CONFLICT,
+            )
 
     @extend_schema(
         summary='Sign an upload for one file field',
