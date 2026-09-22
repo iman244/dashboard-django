@@ -146,6 +146,12 @@ jobs:
         # Runs even when the check above failed, so one report shows both.
         if: always()
         run: |
+          # +e, and it matters more here than it looks. This step asserts
+          # nothing -- it reports -- but GitHub runs `run:` under `bash -e`,
+          # and the https probes below are EXPECTED to fail while this stack
+          # has no TLS listener. Without this the step dies on the first one
+          # and takes the whole deploy red for a result it was only printing.
+          set +e
           for url in \
             http://mainreport.ir/ \
             http://api.mainreport.ir/api/saderat-bank-health-monitoring/monitoring-types/
