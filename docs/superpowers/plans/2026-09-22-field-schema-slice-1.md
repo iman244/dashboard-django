@@ -10,6 +10,35 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-22-monitoring-type-field-schema-design.md`
 
+## Status — 2026-09-22
+
+**Tasks 1-9 complete** on branch `feat/field-schema-uploads` in both repos.
+Django: 73 tests passing. Next.js: build and `tsc --noEmit` clean, lint at
+exactly 33 errors / 29 warnings (baseline held), message parity 485/485.
+
+**Task 10 is blocked on the user**: it needs the bucket name, S3 credentials,
+a bucket CORS rule, and a console login. Nothing in tasks 1-9 has been
+exercised against real object storage -- every S3 call is mocked in the tests.
+
+### Two places reality differed from this plan
+
+1. **Task 6, the 409.** DRF generates a `UniqueTogetherValidator` from the
+   model's `UniqueConstraint`, so a duplicate was caught in validation and
+   returned 400; the planned `IntegrityError` handler never ran. That
+   generated validator also SELECTs before inserting, which is the
+   check-then-insert race the constraint exists to close. Fixed by setting
+   `validators = []` on `PatientEntrySerializer.Meta` and letting the database
+   raise.
+2. **Task 6, the savepoint.** Catching `IntegrityError` and then querying for
+   the existing row raised `TransactionManagementError`. The create is now
+   wrapped in `transaction.atomic()` so the failed INSERT rolls back to a
+   savepoint and the surrounding transaction stays usable.
+
+Also: Task 9 as written created the form components but never rendered them.
+The form is reached from a `Files` row action on the monitoring list page,
+which opens `_entry-form/dialog.tsx`. This avoids touching
+`step-1/[id]/page.tsx` (1576 lines).
+
 ## Global Constraints
 
 - **The Excel path is untouched.** Do not modify `SaderatBankHealthMonitoringUploadExcelSerializer` or the `upload_excel` action. Do not add any validation, size limit, or schema check to the Excel upload. Do not couple entries to the `json` blob in either direction.
@@ -84,7 +113,7 @@ the contract being unambiguous.
   - `RESERVED_KEYS = frozenset({'national_id'})`
   - `SUPPORTED_TYPES = frozenset({'file'})`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `saderatBankHealthMonitoring/tests.py`:
 
@@ -193,7 +222,7 @@ class FieldSchemaValidationTests(TestCase):
 Add `from django.test import TestCase` to the imports at the top of the file if
 it is not already there.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 ```bash
 DJANGO_SETTINGS_MODULE=medicaldashboard.settings.development \
@@ -203,7 +232,7 @@ DJANGO_SETTINGS_MODULE=medicaldashboard.settings.development \
 
 Expected: FAIL — `ModuleNotFoundError: No module named 'saderatBankHealthMonitoring.schema'`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `saderatBankHealthMonitoring/schema.py`:
 
@@ -342,7 +371,7 @@ def find_field(document, key):
     return None
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 ```bash
 DJANGO_SETTINGS_MODULE=medicaldashboard.settings.development \
@@ -352,7 +381,7 @@ DJANGO_SETTINGS_MODULE=medicaldashboard.settings.development \
 
 Expected: PASS, 16 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add saderatBankHealthMonitoring/schema.py saderatBankHealthMonitoring/tests.py
@@ -370,7 +399,7 @@ git commit -m "Add field_schema validation, file fields only"
 **Interfaces:**
 - Produces: `normalize_national_id(value: str) -> str`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 from .national_id import normalize_national_id
@@ -401,7 +430,7 @@ class NationalIdNormalizationTests(TestCase):
         self.assertIsNone(normalize_national_id(None))
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 ```bash
 DJANGO_SETTINGS_MODULE=medicaldashboard.settings.development \
@@ -411,7 +440,7 @@ DJANGO_SETTINGS_MODULE=medicaldashboard.settings.development \
 
 Expected: FAIL — `No module named 'saderatBankHealthMonitoring.national_id'`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `saderatBankHealthMonitoring/national_id.py`:
 
@@ -442,11 +471,11 @@ def normalize_national_id(value):
     return value.translate(_DIGIT_MAP).strip()
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Expected: PASS, 7 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add saderatBankHealthMonitoring/national_id.py saderatBankHealthMonitoring/tests.py
@@ -470,7 +499,7 @@ git commit -m "Fold Persian and Arabic digits in national ids"
   - `PatientEntry(monitoring, national_id, values, created_at, updated_at)` with `files` reverse accessor
   - `PatientEntryFile(entry, field_key, key, original_name, content_type, size, uploaded_at)`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 from .models import PatientEntry, PatientEntryFile
@@ -549,7 +578,7 @@ class PatientEntryModelTests(APITestCase):
 
 Add `from django.db.utils import IntegrityError` to the test imports.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 ```bash
 DJANGO_SETTINGS_MODULE=medicaldashboard.settings.development \
@@ -559,7 +588,7 @@ DJANGO_SETTINGS_MODULE=medicaldashboard.settings.development \
 
 Expected: FAIL — `ImportError: cannot import name 'PatientEntry'`.
 
-- [ ] **Step 3: Write the models**
+- [x] **Step 3: Write the models**
 
 Append to `saderatBankHealthMonitoring/models.py`:
 
@@ -652,7 +681,7 @@ class PatientEntryFile(models.Model):
         return f'{self.field_key}: {self.original_name}'
 ```
 
-- [ ] **Step 4: Expose `field_schema` and fix the exact-dict test**
+- [x] **Step 4: Expose `field_schema` and fix the exact-dict test**
 
 In `serializers.py`, add `'field_schema'` to `MonitoringTypeSerializer.Meta.fields`:
 
@@ -675,7 +704,7 @@ add the new key rather than loosening the assertion:
         )
 ```
 
-- [ ] **Step 5: Generate and inspect the migration**
+- [x] **Step 5: Generate and inspect the migration**
 
 ```bash
 DJANGO_SETTINGS_MODULE=medicaldashboard.settings.development \
@@ -687,7 +716,7 @@ Read the generated file. It must contain `AddField` for `field_schema` and
 `CreateModel` for both new models, and must **not** alter
 `SaderatBankHealthMonitoring.json` or anything Excel-related.
 
-- [ ] **Step 6: Run the whole suite**
+- [x] **Step 6: Run the whole suite**
 
 ```bash
 DJANGO_SETTINGS_MODULE=medicaldashboard.settings.development \
@@ -697,7 +726,7 @@ DJANGO_SETTINGS_MODULE=medicaldashboard.settings.development \
 Expected: PASS, all pre-existing tests plus the new ones. The pre-existing
 count must not drop.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add saderatBankHealthMonitoring/models.py saderatBankHealthMonitoring/serializers.py \
@@ -727,7 +756,7 @@ unreachable.
   - `head_object(key: str) -> dict | None` → `{'size': int, 'content_type': str}` or `None` when absent
   - `S3Unavailable` — raised when the bucket cannot be reached
 
-- [ ] **Step 1: Add the dependency**
+- [x] **Step 1: Add the dependency**
 
 ```bash
 ./venv/bin/pip install 'boto3==1.35.99'
@@ -735,7 +764,7 @@ unreachable.
 sort -u -o requirements.txt requirements.txt
 ```
 
-- [ ] **Step 2: Add settings**
+- [x] **Step 2: Add settings**
 
 Append to `medicaldashboard/settings/base.py`, following the existing
 `django-environ` idiom:
@@ -757,7 +786,7 @@ S3_ADDRESSING = env('S3_ADDRESSING', default='path')
 S3_PRESIGN_TTL = env.int('S3_PRESIGN_TTL', default=900)
 ```
 
-- [ ] **Step 3: Write the failing tests**
+- [x] **Step 3: Write the failing tests**
 
 Only key construction is tested here; signing and `HEAD` are exercised against
 a stubbed client in Task 6, because testing boto3's own signing proves nothing.
@@ -786,11 +815,11 @@ class S3KeyTests(TestCase):
         self.assertIn('/xms/', key)
 ```
 
-- [ ] **Step 4: Run the tests to verify they fail**
+- [x] **Step 4: Run the tests to verify they fail**
 
 Expected: FAIL — `No module named 'saderatBankHealthMonitoring.s3'`.
 
-- [ ] **Step 5: Write the implementation**
+- [x] **Step 5: Write the implementation**
 
 Create `saderatBankHealthMonitoring/s3.py`:
 
@@ -910,11 +939,11 @@ def head_object(key):
     }
 ```
 
-- [ ] **Step 6: Run the tests to verify they pass**
+- [x] **Step 6: Run the tests to verify they pass**
 
 Expected: PASS, 4 tests.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add saderatBankHealthMonitoring/s3.py medicaldashboard/settings/base.py \
@@ -943,7 +972,7 @@ Django signs nothing it has not first checked against the schema.
   - `POST /api/saderat-bank-health-monitoring/patient-entries/presign/`
   - URL name: `patient-entries-presign`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 from unittest import mock
@@ -1053,11 +1082,11 @@ class MimeMatchTests(TestCase):
 Add to the test imports: `from .s3 import S3Unavailable` and
 `from .schema import mime_matches`.
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Expected: FAIL — `cannot import name 'mime_matches'`.
 
-- [ ] **Step 3: Extend `schema.py`**
+- [x] **Step 3: Extend `schema.py`**
 
 Append to `saderatBankHealthMonitoring/schema.py`:
 
@@ -1102,7 +1131,7 @@ def check_upload(field, content_type, size):
             )
 ```
 
-- [ ] **Step 4: Add the serializer**
+- [x] **Step 4: Add the serializer**
 
 Append to `saderatBankHealthMonitoring/serializers.py`:
 
@@ -1131,7 +1160,7 @@ from .national_id import normalize_national_id
 from .schema import check_upload, find_field
 ```
 
-- [ ] **Step 5: Add the view**
+- [x] **Step 5: Add the view**
 
 Append to `saderatBankHealthMonitoring/views.py`:
 
@@ -1217,7 +1246,7 @@ from .schema import check_upload, find_field
 from .serializers import PresignRequestSerializer
 ```
 
-- [ ] **Step 6: Register the route**
+- [x] **Step 6: Register the route**
 
 In `saderatBankHealthMonitoring/urls.py`:
 
@@ -1232,7 +1261,7 @@ router.register(
     r'patient-entries', PatientEntryViewSet, basename='patient-entries')
 ```
 
-- [ ] **Step 7: Run the tests to verify they pass**
+- [x] **Step 7: Run the tests to verify they pass**
 
 ```bash
 DJANGO_SETTINGS_MODULE=medicaldashboard.settings.development \
@@ -1243,7 +1272,7 @@ DJANGO_SETTINGS_MODULE=medicaldashboard.settings.development \
 
 Expected: PASS, 12 tests.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add saderatBankHealthMonitoring/
@@ -1267,7 +1296,7 @@ git commit -m "Sign uploads only for files the schema permits"
   - `GET|POST /patient-entries/`, `GET|PATCH|DELETE /patient-entries/{pk}/`
   - URL names: `patient-entries-list`, `patient-entries-detail`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 class PatientEntryApiTests(APITestCase):
@@ -1399,11 +1428,11 @@ class PatientEntryApiTests(APITestCase):
         self.assertEqual(PatientEntryFile.objects.count(), 0)
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Expected: FAIL — `NoReverseMatch` or missing serializer.
 
-- [ ] **Step 3: Write the serializers**
+- [x] **Step 3: Write the serializers**
 
 Append to `saderatBankHealthMonitoring/serializers.py`:
 
@@ -1532,7 +1561,7 @@ from .models import PatientEntry, PatientEntryFile
 from .s3 import S3Unavailable, head_object, presign_get
 ```
 
-- [ ] **Step 4: Finish the viewset**
+- [x] **Step 4: Finish the viewset**
 
 Add to `PatientEntryViewSet` in `views.py`, above the `presign` action:
 
@@ -1601,7 +1630,7 @@ documents the 409:
 )
 ```
 
-- [ ] **Step 5: Run the whole suite**
+- [x] **Step 5: Run the whole suite**
 
 ```bash
 DJANGO_SETTINGS_MODULE=medicaldashboard.settings.development \
@@ -1611,7 +1640,7 @@ DJANGO_SETTINGS_MODULE=medicaldashboard.settings.development \
 Expected: PASS. Confirm the pre-existing Excel tests
 (`MonitoringWireFormatTests`) still pass untouched.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add saderatBankHealthMonitoring/
@@ -1626,14 +1655,14 @@ git commit -m "Read and write patient entries, verified against the bucket"
 - Modify: `openapi.yaml`
 - Modify: `dashboard-nextjs/src/data/api-schema.d.ts`
 
-- [ ] **Step 1: Regenerate the schema**
+- [x] **Step 1: Regenerate the schema**
 
 ```bash
 DJANGO_SETTINGS_MODULE=medicaldashboard.settings.development \
   ./venv/bin/python manage.py spectacular --file openapi.yaml
 ```
 
-- [ ] **Step 2: Confirm the new operations are present**
+- [x] **Step 2: Confirm the new operations are present**
 
 ```bash
 grep -n 'patient-entries' openapi.yaml | head
@@ -1643,13 +1672,13 @@ grep -n 'field_schema' openapi.yaml | head
 Expected: the five entry routes plus `presign`, and `field_schema` on
 `MonitoringType`.
 
-- [ ] **Step 3: Regenerate the client types**
+- [x] **Step 3: Regenerate the client types**
 
 ```bash
 cd ../dashboard-nextjs && npm run generate:api-types
 ```
 
-- [ ] **Step 4: Confirm the generated types compile**
+- [x] **Step 4: Confirm the generated types compile**
 
 ```bash
 cd ../dashboard-nextjs && npm run build && npx tsc --noEmit
@@ -1657,7 +1686,7 @@ cd ../dashboard-nextjs && npm run build && npx tsc --noEmit
 
 Expected: both exit 0.
 
-- [ ] **Step 5: Commit both repos**
+- [x] **Step 5: Commit both repos**
 
 ```bash
 cd ../dashboard-django && git add openapi.yaml && \
@@ -1691,7 +1720,7 @@ naming, same `AxiosError<{[key: string]: string[]}>` error shape.
   - `uploadToField({ monitoring, nationalId, fieldKey, file, onProgress }): Promise<FileDescriptor>`
   - `fileFieldsOf(type: MonitoringType): FileFieldDefinition[]`
 
-- [ ] **Step 1: Write the types**
+- [x] **Step 1: Write the types**
 
 `src/data/patient-entry/types.ts`:
 
@@ -1754,7 +1783,7 @@ export const labelOf = (field: FileFieldDefinition, locale: string) =>
   locale === "fa" ? field.label_fa : field.label_en;
 ```
 
-- [ ] **Step 2: Write the API hooks**
+- [x] **Step 2: Write the API hooks**
 
 `src/data/patient-entry/api/list.ts`:
 
@@ -1921,7 +1950,7 @@ export const presign = async (input: PresignInput) => {
 `src/data/patient-entry/api/index.ts` re-exports all five modules, matching
 `src/data/monitoring-type/api/index.ts`.
 
-- [ ] **Step 3: Write the upload helper**
+- [x] **Step 3: Write the upload helper**
 
 `src/data/patient-entry/upload.ts`:
 
@@ -1987,7 +2016,7 @@ export const uploadToField = async ({
 };
 ```
 
-- [ ] **Step 4: Verify the types compile**
+- [x] **Step 4: Verify the types compile**
 
 ```bash
 cd dashboard-nextjs && npm run build && npx tsc --noEmit
@@ -1995,7 +2024,7 @@ cd dashboard-nextjs && npm run build && npx tsc --noEmit
 
 Expected: both exit 0.
 
-- [ ] **Step 5: Check the lint baseline has not grown**
+- [x] **Step 5: Check the lint baseline has not grown**
 
 ```bash
 cd dashboard-nextjs && npm run lint 2>&1 | tail -3
@@ -2003,7 +2032,7 @@ cd dashboard-nextjs && npm run lint 2>&1 | tail -3
 
 Expected: **33 errors, 29 warnings** — unchanged.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/data/patient-entry/
@@ -2030,7 +2059,7 @@ inside another component — `react-hooks/static-components` is already 25 of th
 `form.watch`, which caused a `set-state-in-effect` error on the monitoring-types
 form. Logical CSS properties only.
 
-- [ ] **Step 1: Write the file field component**
+- [x] **Step 1: Write the file field component**
 
 `_entry-form/file-field.tsx` — one declared file field: a picker constrained by
 `accept`, a list of chosen files with per-file progress, and removal. It is a
@@ -2176,7 +2205,7 @@ export function FileField({
 }
 ```
 
-- [ ] **Step 2: Write the form**
+- [x] **Step 2: Write the form**
 
 `_entry-form/entry-form.tsx`:
 
@@ -2330,7 +2359,7 @@ export { EntryForm } from "./entry-form";
 export { FileField } from "./file-field";
 ```
 
-- [ ] **Step 3: Add the messages**
+- [x] **Step 3: Add the messages**
 
 Append to the `/console/saderat-bank-health-monitoring` namespace in **both**
 `messages/en.json` and `messages/fa.json`, at exact key parity:
@@ -2342,7 +2371,7 @@ entryForm.maxSize, entryForm.removeFile, entryForm.noFields,
 entryForm.alreadyExists
 ```
 
-- [ ] **Step 4: Verify parity**
+- [x] **Step 4: Verify parity**
 
 ```bash
 cd dashboard-nextjs && node -e "
@@ -2357,7 +2386,7 @@ console.log('missing in en:',b.filter(k=>!a.includes(k)));
 
 Expected: equal counts, both lists empty.
 
-- [ ] **Step 5: Verify build, types and lint**
+- [x] **Step 5: Verify build, types and lint**
 
 ```bash
 cd dashboard-nextjs && npm run build && npx tsc --noEmit && npm run lint 2>&1 | tail -3
@@ -2365,7 +2394,7 @@ cd dashboard-nextjs && npm run build && npx tsc --noEmit && npm run lint 2>&1 | 
 
 Expected: build and tsc exit 0; lint reports **33 errors, 29 warnings**.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/app messages/
