@@ -9,6 +9,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from .models import MonitoringType, SaderatBankHealthMonitoring
+from .national_id import normalize_national_id
 from .schema import file_fields, find_field, validate_field_schema
 
 
@@ -287,3 +288,28 @@ class FieldSchemaValidationTests(TestCase):
         document = schema(file_field('mri_image'))
         self.assertEqual(find_field(document, 'mri_image')['key'], 'mri_image')
         self.assertIsNone(find_field(document, 'absent'))
+
+
+class NationalIdNormalizationTests(TestCase):
+    """Identity keys must fold to one spelling before they reach the database."""
+
+    def test_ascii_passes_through(self):
+        self.assertEqual(normalize_national_id('0012345678'), '0012345678')
+
+    def test_persian_digits_fold(self):
+        self.assertEqual(normalize_national_id('۰۰۱۲۳۴۵۶۷۸'), '0012345678')
+
+    def test_arabic_indic_digits_fold(self):
+        self.assertEqual(normalize_national_id('٠٠١٢٣٤٥٦٧٨'), '0012345678')
+
+    def test_mixed_digits_fold(self):
+        self.assertEqual(normalize_national_id('۰۰12٣٤5678'), '0012345678')
+
+    def test_surrounding_whitespace_is_stripped(self):
+        self.assertEqual(normalize_national_id('  0012345678 '), '0012345678')
+
+    def test_empty_stays_empty(self):
+        self.assertEqual(normalize_national_id(''), '')
+
+    def test_non_string_is_returned_unchanged(self):
+        self.assertIsNone(normalize_national_id(None))
