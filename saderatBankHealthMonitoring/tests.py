@@ -20,10 +20,13 @@ from .models import (
 from .national_id import normalize_national_id
 from .s3 import S3Unavailable, build_key
 from .schema import (
-    file_fields,
+    digit_string_fields,
     find_field,
+    image_fields,
+    is_multiple,
     mime_matches,
     validate_field_schema,
+    validate_values,
 )
 
 
@@ -216,16 +219,14 @@ class MonitoringTypeModelTests(APITestCase):
         self.assertEqual(str(monitoring), 'March (Step 1)')
 
 
-def file_field(key='mri_image', **overrides):
-    """A minimal valid file field, with overrides merged in."""
+def image_field(key='mri_image', **overrides):
+    """A minimal valid image field, with overrides merged in."""
     field = {
         'key': key,
-        'type': 'file',
+        'type': 'image',
         'label_en': 'MRI Image',
         'label_fa': 'تصویر ام‌آر‌آی',
         'required': False,
-        'multiple': True,
-        'accept': ['image/jpeg'],
         'max_size_mb': 50,
         'max_count': 10,
     }
@@ -233,8 +234,24 @@ def file_field(key='mri_image', **overrides):
     return field
 
 
-def schema(*fields):
-    return {'version': 1, 'fields': list(fields)}
+def digit_field(key='blood_pressure', **overrides):
+    """A minimal valid digit_string field, with overrides merged in."""
+    field = {
+        'key': key,
+        'type': 'digit_string',
+        'label_en': 'Blood Pressure',
+        'label_fa': 'فشار خون',
+        'required': False,
+    }
+    field.update(overrides)
+    return field
+
+
+def schema(*fields, sections=None):
+    document = {'version': 1, 'fields': list(fields)}
+    if sections is not None:
+        document['sections'] = sections
+    return document
 
 
 class FieldSchemaValidationTests(TestCase):
@@ -248,8 +265,9 @@ class FieldSchemaValidationTests(TestCase):
     def test_empty_schema_is_valid(self):
         self.assertIsNone(validate_field_schema({}))
 
-    def test_minimal_file_field_is_valid(self):
-        self.assertIsNone(validate_field_schema(schema(file_field())))
+    def test_both_field_types_are_valid(self):
+        self.assertIsNone(
+            validate_field_schema(schema(image_field(), digit_field())))
 
     def test_rejects_non_dict(self):
         self.assertRejects([], 'object')
@@ -261,48 +279,148 @@ class FieldSchemaValidationTests(TestCase):
         self.assertRejects({'version': 1, 'fields': {}}, 'list')
 
     def test_rejects_unsupported_type(self):
-        self.assertRejects(schema(file_field(type='string')), 'file')
+        self.assertRejects(schema(image_field(type='file')), 'not supported')
+        self.assertRejects(schema(image_field(type='number')), 'not supported')
 
     def test_rejects_reserved_key(self):
-        self.assertRejects(schema(file_field(key='national_id')), 'reserved')
+        self.assertRejects(schema(image_field(key='national_id')), 'reserved')
 
     def test_rejects_malformed_key(self):
-        self.assertRejects(schema(file_field(key='MRI Image')), 'key')
-        self.assertRejects(schema(file_field(key='9lives')), 'key')
-        self.assertRejects(schema(file_field(key='has.dot')), 'key')
+        self.assertRejects(schema(image_field(key='MRI Image')), 'key')
+        self.assertRejects(schema(image_field(key='9lives')), 'key')
+        self.assertRejects(schema(image_field(key='has.dot')), 'key')
 
     def test_rejects_duplicate_keys(self):
-        self.assertRejects(schema(file_field(), file_field()), 'duplicate')
+        self.assertRejects(
+            schema(image_field(), image_field()), 'duplicate')
 
     def test_requires_both_labels(self):
-        self.assertRejects(schema(file_field(label_fa='')), 'label_fa')
-        field = file_field()
+        self.assertRejects(schema(image_field(label_fa='')), 'label_fa')
+        field = image_field()
         del field['label_en']
         self.assertRejects(schema(field), 'label_en')
 
     def test_rejects_non_positive_max_size(self):
-        self.assertRejects(schema(file_field(max_size_mb=0)), 'max_size_mb')
+        self.assertRejects(schema(image_field(max_size_mb=0)), 'max_size_mb')
 
-    def test_rejects_non_positive_max_count(self):
-        self.assertRejects(schema(file_field(max_count=0)), 'max_count')
+    def test_rejects_max_count_above_one_when_single(self):
+        self.assertRejects(
+            schema(image_field(multiple=False, max_count=3)), 'max_count')
 
-    def test_rejects_empty_accept(self):
-        self.assertRejects(schema(file_field(accept=[])), 'accept')
+    def test_images_default_to_multiple(self):
+        self.assertTrue(is_multiple(image_field()))
+        self.assertFalse(is_multiple(image_field(multiple=False)))
 
-    def test_file_fields_returns_declarations(self):
-        document = schema(file_field('mri_image'), file_field('xms'))
+    def test_digit_strings_are_not_multiple(self):
+        self.assertFalse(is_multiple(digit_field()))
+
+    def test_rejects_min_length_above_max_length(self):
+        self.assertRejects(
+            schema(digit_field(min_length=10, max_length=4)), 'min_length')
+
+    def test_accepts_length_bounds(self):
+        self.assertIsNone(validate_field_schema(
+            schema(digit_field(min_length=10, max_length=10))))
+
+    def test_sections_must_be_a_list(self):
+        document = schema(image_field())
+        document['sections'] = {}
+        self.assertRejects(document, 'list')
+
+    def test_section_requires_both_titles(self):
+        self.assertRejects(
+            schema(sections=[{'key': 'vitals', 'title_en': 'Vitals',
+                              'title_fa': ''}]),
+            'title_fa')
+
+    def test_rejects_duplicate_section_keys(self):
+        section = {'key': 'vitals', 'title_en': 'Vitals', 'title_fa': 'حیاتی'}
+        self.assertRejects(schema(sections=[section, dict(section)]),
+                           'duplicate section')
+
+    def test_field_may_reference_a_declared_section(self):
+        self.assertIsNone(validate_field_schema(schema(
+            digit_field(section='vitals'),
+            sections=[{'key': 'vitals', 'title_en': 'Vitals',
+                       'title_fa': 'حیاتی'}],
+        )))
+
+    def test_field_cannot_reference_an_undeclared_section(self):
+        self.assertRejects(
+            schema(digit_field(section='nowhere')), 'not a declared section')
+
+    def test_field_without_a_section_is_valid(self):
+        self.assertIsNone(validate_field_schema(schema(digit_field())))
+
+    def test_type_accessors(self):
+        document = schema(image_field('mri'), digit_field('bp'))
+        self.assertEqual([f['key'] for f in image_fields(document)], ['mri'])
         self.assertEqual(
-            [f['key'] for f in file_fields(document)],
-            ['mri_image', 'xms'],
-        )
+            [f['key'] for f in digit_string_fields(document)], ['bp'])
 
-    def test_file_fields_of_empty_schema(self):
-        self.assertEqual(file_fields({}), [])
+    def test_accessors_of_empty_schema(self):
+        self.assertEqual(image_fields({}), [])
+        self.assertEqual(digit_string_fields({}), [])
 
     def test_find_field_hits_and_misses(self):
-        document = schema(file_field('mri_image'))
+        document = schema(image_field('mri_image'))
         self.assertEqual(find_field(document, 'mri_image')['key'], 'mri_image')
         self.assertIsNone(find_field(document, 'absent'))
+
+
+class DigitStringValueTests(TestCase):
+    """Digit strings are strings. Leading zeros are the whole point."""
+
+    def assertRejects(self, document, values, fragment):
+        with self.assertRaises(DjangoValidationError) as caught:
+            validate_values(document, values)
+        self.assertIn(fragment, str(caught.exception))
+
+    def test_accepts_digits(self):
+        self.assertIsNone(
+            validate_values(schema(digit_field('bp')), {'bp': '12080'}))
+
+    def test_leading_zeros_survive(self):
+        document = schema(digit_field('code', min_length=10, max_length=10))
+        self.assertIsNone(validate_values(document, {'code': '0012345678'}))
+
+    def test_rejects_letters(self):
+        self.assertRejects(
+            schema(digit_field('bp')), {'bp': '120/80'}, 'digits only')
+
+    def test_rejects_an_int(self):
+        """An int has already lost the leading zero by the time we see it."""
+        self.assertRejects(
+            schema(digit_field('bp')), {'bp': 12080}, 'must be a string')
+
+    def test_rejects_too_short(self):
+        self.assertRejects(
+            schema(digit_field('code', min_length=10)),
+            {'code': '123'}, 'at least 10')
+
+    def test_rejects_too_long(self):
+        self.assertRejects(
+            schema(digit_field('code', max_length=4)),
+            {'code': '123456'}, 'at most 4')
+
+    def test_required_field_must_be_present(self):
+        self.assertRejects(
+            schema(digit_field('bp', required=True)), {}, 'required')
+
+    def test_optional_field_may_be_absent(self):
+        self.assertIsNone(validate_values(schema(digit_field('bp')), {}))
+
+    def test_optional_field_may_be_empty_string(self):
+        self.assertIsNone(
+            validate_values(schema(digit_field('bp')), {'bp': ''}))
+
+    def test_rejects_undeclared_keys(self):
+        self.assertRejects(
+            schema(digit_field('bp')), {'ghost': '1'}, 'undeclared')
+
+    def test_image_fields_do_not_live_in_values(self):
+        self.assertRejects(
+            schema(image_field('mri')), {'mri': '1'}, 'undeclared')
 
 
 class NationalIdNormalizationTests(TestCase):
@@ -384,7 +502,7 @@ class PatientEntryModelTests(APITestCase):
         self.step_1.field_schema = {
             'version': 1,
             'fields': [{
-                'key': 'mri_image', 'type': 'file',
+                'key': 'mri_image', 'type': 'image',
                 'label_en': 'MRI', 'label_fa': 'ام‌آر‌آی',
             }],
         }
@@ -449,10 +567,9 @@ class PresignTests(APITestCase):
             field_schema={
                 'version': 1,
                 'fields': [{
-                    'key': 'mri_image', 'type': 'file',
+                    'key': 'mri_image', 'type': 'image',
                     'label_en': 'MRI Image', 'label_fa': 'تصویر ام‌آر‌آی',
                     'required': True, 'multiple': True,
-                    'accept': ['image/jpeg', 'image/png'],
                     'max_size_mb': 5, 'max_count': 3,
                 }],
             },
@@ -532,11 +649,10 @@ class PatientEntryApiTests(APITestCase):
             field_schema={
                 'version': 1,
                 'fields': [{
-                    'key': 'mri_image', 'type': 'file',
+                    'key': 'mri_image', 'type': 'image',
                     'label_en': 'MRI Image', 'label_fa': 'تصویر ام‌آر‌آی',
                     'required': True, 'multiple': True,
-                    'accept': ['image/jpeg'], 'max_size_mb': 5,
-                    'max_count': 2,
+                    'max_size_mb': 5, 'max_count': 2,
                 }],
             },
         )
@@ -652,3 +768,67 @@ class PatientEntryApiTests(APITestCase):
         self.client.delete(reverse('patient-entries-detail', args=[entry_id]))
         self.assertEqual(PatientEntry.objects.count(), 0)
         self.assertEqual(PatientEntryFile.objects.count(), 0)
+
+
+class PatientEntryValuesApiTests(APITestCase):
+    """digit_string values travel through the API as strings."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.type = MonitoringType.objects.create(
+            slug='vitals', name_en='Vitals', name_fa='علائم حیاتی',
+            field_schema={
+                'version': 1,
+                'sections': [{'key': 'vitals', 'title_en': 'Vitals',
+                              'title_fa': 'علائم حیاتی'}],
+                'fields': [
+                    {'key': 'personnel_code', 'type': 'digit_string',
+                     'label_en': 'Personnel Code', 'label_fa': 'کد پرسنلی',
+                     'section': 'vitals', 'required': True,
+                     'min_length': 10, 'max_length': 10},
+                    {'key': 'blood_pressure', 'type': 'digit_string',
+                     'label_en': 'Blood Pressure', 'label_fa': 'فشار خون',
+                     'section': 'vitals', 'required': False},
+                ],
+            },
+        )
+        cls.monitoring = SaderatBankHealthMonitoring.objects.create(
+            name='Vitals batch', type=cls.type, json=[])
+        User = get_user_model()
+        cls.user = User.objects.create_user('op3', 'op3@example.com', 'pw')
+
+    def setUp(self):
+        self.client.force_authenticate(self.user)
+
+    def create(self, values):
+        return self.client.post(
+            reverse('patient-entries-list'),
+            {'monitoring': self.monitoring.id, 'national_id': '0012345678',
+             'values': values},
+            format='json',
+        )
+
+    def test_leading_zeros_survive_the_round_trip(self):
+        response = self.create({'personnel_code': '0000000042'})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            response.data['values']['personnel_code'], '0000000042')
+        entry = PatientEntry.objects.get(pk=response.data['id'])
+        self.assertEqual(entry.values['personnel_code'], '0000000042')
+
+    def test_missing_required_value_is_refused(self):
+        response = self.create({'blood_pressure': '12080'})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_letters_are_refused(self):
+        response = self.create({'personnel_code': '00abc00042'})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_wrong_length_is_refused(self):
+        response = self.create({'personnel_code': '42'})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_undeclared_key_is_refused(self):
+        response = self.create(
+            {'personnel_code': '0000000042', 'ghost': '1'})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

@@ -4,7 +4,7 @@ from django.db.models import ProtectedError
 from rest_framework import permissions, status, viewsets
 from .models import MonitoringType, PatientEntry, SaderatBankHealthMonitoring
 from .s3 import S3Unavailable, build_key, presign_put
-from .schema import check_upload, find_field
+from .schema import IMAGE, check_upload, find_field
 from .serializers import (
     MonitoringTypeSerializer,
     SaderatBankHealthMonitoringRetrieveSerializer,
@@ -215,10 +215,10 @@ class PatientEntryViewSet(viewsets.ModelViewSet):
 
         monitoring = data['monitoring']
         field = find_field(monitoring.type.field_schema, data['field_key'])
-        if field is None or field.get('type') != 'file':
+        if field is None or field.get('type') != IMAGE:
             raise drf_serializers.ValidationError(
                 {'field_key': [
-                    f'{data["field_key"]!r} is not a file field of '
+                    f'{data["field_key"]!r} is not an image field of '
                     f'{monitoring.type.slug!r}.']})
 
         try:

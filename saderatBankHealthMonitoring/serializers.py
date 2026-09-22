@@ -12,7 +12,13 @@ from .national_id import normalize_national_id
 from .s3 import S3Unavailable, head_object, presign_get
 from drf_spectacular.utils import extend_schema_field
 
-from .schema import check_upload, find_field
+from .schema import (
+    IMAGE,
+    check_upload,
+    find_field,
+    is_multiple,
+    validate_values,
+)
 
 
 class MonitoringTypeSerializer(serializers.ModelSerializer):
@@ -153,22 +159,31 @@ class PatientEntrySerializer(serializers.ModelSerializer):
         return normalize_national_id(value)
 
     def validate(self, attrs):
-        """Check every declared file against the schema and the bucket."""
-        files = attrs.get('files')
-        if files is None:
-            return attrs
-
+        """Check values and files against the type's schema and the bucket."""
         monitoring = attrs.get('monitoring') or getattr(
             self.instance, 'monitoring', None)
         schema_document = monitoring.type.field_schema
+
+        # digit_string values live in `values`; images are rows. Validated on
+        # create, and on any update that supplies them.
+        if 'values' in attrs or self.instance is None:
+            try:
+                validate_values(schema_document, attrs.get('values') or {})
+            except DjangoValidationError as error:
+                raise serializers.ValidationError(
+                    {'values': list(error.messages)})
+
+        files = attrs.get('files')
+        if files is None:
+            return attrs
 
         counts = {}
         for descriptor in files:
             field_key = descriptor['field_key']
             field = find_field(schema_document, field_key)
-            if field is None or field.get('type') != 'file':
+            if field is None or field.get('type') != IMAGE:
                 raise serializers.ValidationError(
-                    {'files': [f'{field_key!r} is not a file field of '
+                    {'files': [f'{field_key!r} is not an image field of '
                                f'{monitoring.type.slug!r}.']})
 
             counts[field_key] = counts.get(field_key, 0) + 1
@@ -177,9 +192,9 @@ class PatientEntrySerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {'files': [f'{field_key!r} accepts at most {max_count} '
                                f'file(s).']})
-            if not field.get('multiple', False) and counts[field_key] > 1:
+            if not is_multiple(field) and counts[field_key] > 1:
                 raise serializers.ValidationError(
-                    {'files': [f'{field_key!r} accepts one file.']})
+                    {'files': [f'{field_key!r} accepts one image.']})
 
             try:
                 check_upload(field, descriptor['content_type'],
