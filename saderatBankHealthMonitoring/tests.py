@@ -17,6 +17,7 @@ from .models import (
     SaderatBankHealthMonitoring,
 )
 from .national_id import normalize_national_id
+from .s3 import build_key
 from .schema import file_fields, find_field, validate_field_schema
 
 
@@ -392,3 +393,23 @@ class PatientEntryModelTests(APITestCase):
             format='multipart',
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
+class S3KeyTests(TestCase):
+    def test_key_layout(self):
+        key = build_key(7, '0012345678', 'mri_image', 'scan.JPG')
+        self.assertTrue(key.startswith('entries/7/0012345678/mri_image/'))
+        self.assertTrue(key.endswith('.jpg'))
+
+    def test_key_is_unique_per_call(self):
+        first = build_key(7, '0012345678', 'mri_image', 'scan.jpg')
+        second = build_key(7, '0012345678', 'mri_image', 'scan.jpg')
+        self.assertNotEqual(first, second)
+
+    def test_national_id_is_folded_into_the_key(self):
+        key = build_key(7, '۰۰۱۲۳۴۵۶۷۸', 'mri_image', 'scan.jpg')
+        self.assertIn('/0012345678/', key)
+
+    def test_extensionless_filename_is_allowed(self):
+        key = build_key(7, '0012345678', 'xms', 'rawdata')
+        self.assertIn('/xms/', key)

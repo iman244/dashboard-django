@@ -154,3 +154,18 @@ DJOSER = {
         'current_user': 'api.serializers.UserSerializer',
     },
 }
+
+# Object storage (Arvan, S3-compatible). Bytes are written by the operator's
+# browser through a presigned PUT; Django only signs and verifies. Empty
+# credentials are valid -- the presign endpoint then refuses rather than the
+# application failing to boot, so local work without S3 is possible.
+S3_ENDPOINT_URL = env('S3_ENDPOINT_URL',
+                      default='https://s3.ir-thr-at1.arvanstorage.ir')
+S3_ACCESS_KEY = env('S3_ACCESS_KEY', default='')
+S3_SECRET_KEY = env('S3_SECRET_KEY', default='')
+S3_BUCKET = env('S3_BUCKET', default='')
+S3_REGION = env('S3_REGION', default='ir-thr-at1')
+# Arvan accepts both; 'path' is the safer default for a bucket name that is not
+# DNS-clean. Verify against the live bucket and change here only.
+S3_ADDRESSING = env('S3_ADDRESSING', default='path')
+S3_PRESIGN_TTL = env.int('S3_PRESIGN_TTL', default=900)
