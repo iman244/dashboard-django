@@ -454,8 +454,7 @@ class PatientEntryModelTests(APITestCase):
     @classmethod
     def setUpTestData(cls):
         cls.step_1 = MonitoringType.objects.get(slug='step_1')
-        cls.monitoring = SaderatBankHealthMonitoring.objects.create(
-            name='March', type=cls.step_1, json=[])
+        cls.monitoring = cls.step_1
 
     def test_field_schema_defaults_to_empty_dict(self):
         self.assertEqual(self.step_1.field_schema, {})
@@ -479,8 +478,7 @@ class PatientEntryModelTests(APITestCase):
                 monitoring=self.monitoring, national_id='0012345678')
 
     def test_same_national_id_under_another_monitoring_is_allowed(self):
-        other = SaderatBankHealthMonitoring.objects.create(
-            name='April', type=self.step_1, json=[])
+        other = MonitoringType.objects.get(slug='step_2')
         PatientEntry.objects.create(
             monitoring=self.monitoring, national_id='0012345678')
         PatientEntry.objects.create(
@@ -488,14 +486,25 @@ class PatientEntryModelTests(APITestCase):
         self.assertEqual(PatientEntry.objects.count(), 2)
 
     def test_deleting_a_monitoring_takes_its_entries(self):
+        doomed = MonitoringType.objects.create(
+            slug='doomed', name_en='Doomed', name_fa='حذفی')
         entry = PatientEntry.objects.create(
-            monitoring=self.monitoring, national_id='0012345678')
+            monitoring=doomed, national_id='0012345678')
         PatientEntryFile.objects.create(
             entry=entry, field_key='mri_image', key='entries/1/x.jpg',
             original_name='x.jpg', content_type='image/jpeg', size=10)
-        self.monitoring.delete()
+        doomed.delete()
         self.assertEqual(PatientEntry.objects.count(), 0)
         self.assertEqual(PatientEntryFile.objects.count(), 0)
+
+    def test_deleting_a_spreadsheet_leaves_entries_alone(self):
+        """The two stores are unrelated; neither cascades into the other."""
+        batch = SaderatBankHealthMonitoring.objects.create(
+            name='Some upload', type=self.step_1, json=[{'a': 1}])
+        PatientEntry.objects.create(
+            monitoring=self.step_1, national_id='0012345678')
+        batch.delete()
+        self.assertEqual(PatientEntry.objects.count(), 1)
 
     def test_excel_upload_is_unaffected_by_a_schema(self):
         """The load-bearing constraint: a schema never gates Excel."""
@@ -574,8 +583,7 @@ class PresignTests(APITestCase):
                 }],
             },
         )
-        cls.monitoring = SaderatBankHealthMonitoring.objects.create(
-            name='March', type=cls.type, json=[])
+        cls.monitoring = cls.type
         User = get_user_model()
         cls.user = User.objects.create_user('op', 'op@example.com', 'pw')
 
@@ -656,8 +664,7 @@ class PatientEntryApiTests(APITestCase):
                 }],
             },
         )
-        cls.monitoring = SaderatBankHealthMonitoring.objects.create(
-            name='March', type=cls.type, json=[])
+        cls.monitoring = cls.type
         User = get_user_model()
         cls.user = User.objects.create_user('op2', 'op2@example.com', 'pw')
 
@@ -792,8 +799,7 @@ class PatientEntryValuesApiTests(APITestCase):
                 ],
             },
         )
-        cls.monitoring = SaderatBankHealthMonitoring.objects.create(
-            name='Vitals batch', type=cls.type, json=[])
+        cls.monitoring = cls.type
         User = get_user_model()
         cls.user = User.objects.create_user('op3', 'op3@example.com', 'pw')
 

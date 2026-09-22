@@ -64,18 +64,20 @@ class SaderatBankHealthMonitoring(models.Model):
 class PatientEntry(models.Model):
     """One patient's answers to a monitoring's field_schema.
 
-    Independent of `SaderatBankHealthMonitoring.json`: an entry may exist for a
-    national id the uploaded spreadsheet has never mentioned, and uploading a
-    new spreadsheet never invalidates an entry. They are two stores that happen
-    to share a key.
+    Attached to the monitoring itself, not to an uploaded spreadsheet. The two
+    ways data arrives are wholly separate: a spreadsheet becomes a
+    `SaderatBankHealthMonitoring` row with a `json` blob, while an operator
+    filling in the form becomes one of these. Neither knows about the other,
+    and no query joins them.
 
-    CASCADE rather than PROTECT, unlike MonitoringType: an entry is *part of* a
-    monitoring rather than a shared thing the monitoring refers to, so it has
-    no meaning once the monitoring is gone.
+    CASCADE: an entry is *part of* its monitoring and has no meaning without
+    it. That is the opposite of `SaderatBankHealthMonitoring.type`, which
+    PROTECTs -- a spreadsheet merely refers to a monitoring, so deleting one
+    out from under it would be data loss rather than cleanup.
     """
 
     monitoring = models.ForeignKey(
-        SaderatBankHealthMonitoring,
+        MonitoringType,
         on_delete=models.CASCADE,
         related_name='entries',
     )
@@ -103,7 +105,7 @@ class PatientEntry(models.Model):
         return super().save(*args, **kwargs)
 
     def __str__(self):
-        return f'{self.national_id} @ {self.monitoring.name}'
+        return f'{self.national_id} @ {self.monitoring.slug}'
 
 
 class PatientEntryFile(models.Model):

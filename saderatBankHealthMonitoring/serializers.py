@@ -105,7 +105,7 @@ class PresignRequestSerializer(serializers.Serializer):
     """What the browser must state before Django will sign anything."""
 
     monitoring = serializers.PrimaryKeyRelatedField(
-        queryset=SaderatBankHealthMonitoring.objects.all())
+        queryset=MonitoringType.objects.all())
     national_id = serializers.CharField(max_length=10)
     field_key = serializers.CharField(max_length=64)
     filename = serializers.CharField(max_length=255)
@@ -162,7 +162,7 @@ class PatientEntrySerializer(serializers.ModelSerializer):
         """Check values and files against the type's schema and the bucket."""
         monitoring = attrs.get('monitoring') or getattr(
             self.instance, 'monitoring', None)
-        schema_document = monitoring.type.field_schema
+        schema_document = monitoring.field_schema
 
         # digit_string values live in `values`; images are rows. Validated on
         # create, and on any update that supplies them.
@@ -184,7 +184,7 @@ class PatientEntrySerializer(serializers.ModelSerializer):
             if field is None or field.get('type') != IMAGE:
                 raise serializers.ValidationError(
                     {'files': [f'{field_key!r} is not an image field of '
-                               f'{monitoring.type.slug!r}.']})
+                               f'{monitoring.slug!r}.']})
 
             counts[field_key] = counts.get(field_key, 0) + 1
             max_count = field.get('max_count')

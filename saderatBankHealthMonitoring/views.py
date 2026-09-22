@@ -214,12 +214,12 @@ class PatientEntryViewSet(viewsets.ModelViewSet):
         data = serializer.validated_data
 
         monitoring = data['monitoring']
-        field = find_field(monitoring.type.field_schema, data['field_key'])
+        field = find_field(monitoring.field_schema, data['field_key'])
         if field is None or field.get('type') != IMAGE:
             raise drf_serializers.ValidationError(
                 {'field_key': [
                     f'{data["field_key"]!r} is not an image field of '
-                    f'{monitoring.type.slug!r}.']})
+                    f'{monitoring.slug!r}.']})
 
         try:
             check_upload(field, data['content_type'], data['size'])
