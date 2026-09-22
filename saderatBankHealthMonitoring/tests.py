@@ -1,4 +1,5 @@
 import io
+from unittest import mock
 
 import pandas as pd
 from django.contrib.auth import get_user_model
@@ -17,8 +18,13 @@ from .models import (
     SaderatBankHealthMonitoring,
 )
 from .national_id import normalize_national_id
-from .s3 import build_key
-from .schema import file_fields, find_field, validate_field_schema
+from .s3 import S3Unavailable, build_key
+from .schema import (
+    file_fields,
+    find_field,
+    mime_matches,
+    validate_field_schema,
+)
 
 
 def excel_upload(rows):
@@ -413,3 +419,104 @@ class S3KeyTests(TestCase):
     def test_extensionless_filename_is_allowed(self):
         key = build_key(7, '0012345678', 'xms', 'rawdata')
         self.assertIn('/xms/', key)
+
+
+class MimeMatchTests(TestCase):
+    def test_exact_match(self):
+        self.assertTrue(mime_matches(['image/jpeg'], 'image/jpeg'))
+
+    def test_subtype_wildcard(self):
+        self.assertTrue(mime_matches(['image/*'], 'image/png'))
+        self.assertFalse(mime_matches(['image/*'], 'application/pdf'))
+
+    def test_full_wildcard(self):
+        self.assertTrue(mime_matches(['*/*'], 'application/octet-stream'))
+
+    def test_no_match(self):
+        self.assertFalse(mime_matches(['image/jpeg'], 'image/png'))
+
+    def test_case_is_ignored(self):
+        self.assertTrue(mime_matches(['image/JPEG'], 'Image/jpeg'))
+
+
+class PresignTests(APITestCase):
+    """Only uploads the schema permits get a signature."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.type = MonitoringType.objects.create(
+            slug='imaging', name_en='Imaging', name_fa='تصویربرداری',
+            field_schema={
+                'version': 1,
+                'fields': [{
+                    'key': 'mri_image', 'type': 'file',
+                    'label_en': 'MRI Image', 'label_fa': 'تصویر ام‌آر‌آی',
+                    'required': True, 'multiple': True,
+                    'accept': ['image/jpeg', 'image/png'],
+                    'max_size_mb': 5, 'max_count': 3,
+                }],
+            },
+        )
+        cls.monitoring = SaderatBankHealthMonitoring.objects.create(
+            name='March', type=cls.type, json=[])
+        User = get_user_model()
+        cls.user = User.objects.create_user('op', 'op@example.com', 'pw')
+
+    def setUp(self):
+        self.client.force_authenticate(self.user)
+        patcher = mock.patch(
+            'saderatBankHealthMonitoring.views.presign_put',
+            return_value={'url': 'https://example.invalid/signed',
+                          'headers': {'Content-Type': 'image/jpeg'},
+                          'expires_in': 900})
+        self.presign_put = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def post(self, **overrides):
+        payload = {
+            'monitoring': self.monitoring.id,
+            'national_id': '0012345678',
+            'field_key': 'mri_image',
+            'filename': 'scan.jpg',
+            'content_type': 'image/jpeg',
+            'size': 1024,
+        }
+        payload.update(overrides)
+        return self.client.post(
+            reverse('patient-entries-presign'), payload, format='json')
+
+    def test_anonymous_is_refused(self):
+        self.client.force_authenticate(None)
+        self.assertEqual(self.post().status_code,
+                         status.HTTP_401_UNAUTHORIZED)
+
+    def test_valid_request_is_signed(self):
+        response = self.post()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['upload_url'],
+                         'https://example.invalid/signed')
+        self.assertIn('entries/', response.data['key'])
+
+    def test_unknown_field_key_is_refused(self):
+        response = self.post(field_key='nope')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.presign_put.assert_not_called()
+
+    def test_disallowed_mime_is_refused(self):
+        response = self.post(content_type='application/pdf')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.presign_put.assert_not_called()
+
+    def test_oversize_is_refused(self):
+        response = self.post(size=6 * 1024 * 1024)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.presign_put.assert_not_called()
+
+    def test_persian_national_id_is_folded_into_the_key(self):
+        response = self.post(national_id='۰۰۱۲۳۴۵۶۷۸')
+        self.assertIn('/0012345678/', response.data['key'])
+
+    def test_storage_failure_reports_503(self):
+        self.presign_put.side_effect = S3Unavailable('down')
+        self.assertEqual(self.post().status_code,
+                         status.HTTP_503_SERVICE_UNAVAILABLE)

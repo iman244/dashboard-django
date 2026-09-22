@@ -1,7 +1,10 @@
 import pandas as pd
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 from rest_framework.validators import UniqueTogetherValidator
 from .models import MonitoringType, SaderatBankHealthMonitoring
+from .national_id import normalize_national_id
+from .schema import check_upload, find_field
 
 
 class MonitoringTypeSerializer(serializers.ModelSerializer):
@@ -82,3 +85,18 @@ class SaderatBankHealthMonitoringUploadExcelSerializer(
         )
 
         return instance
+
+
+class PresignRequestSerializer(serializers.Serializer):
+    """What the browser must state before Django will sign anything."""
+
+    monitoring = serializers.PrimaryKeyRelatedField(
+        queryset=SaderatBankHealthMonitoring.objects.all())
+    national_id = serializers.CharField(max_length=10)
+    field_key = serializers.CharField(max_length=64)
+    filename = serializers.CharField(max_length=255)
+    content_type = serializers.CharField(max_length=127)
+    size = serializers.IntegerField(min_value=1)
+
+    def validate_national_id(self, value):
+        return normalize_national_id(value)

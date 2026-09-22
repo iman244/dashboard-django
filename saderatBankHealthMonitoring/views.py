@@ -1,12 +1,18 @@
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import ProtectedError
 from rest_framework import permissions, status, viewsets
-from .models import MonitoringType, SaderatBankHealthMonitoring
+from .models import MonitoringType, PatientEntry, SaderatBankHealthMonitoring
+from .s3 import S3Unavailable, build_key, presign_put
+from .schema import check_upload, find_field
 from .serializers import (
     MonitoringTypeSerializer,
     SaderatBankHealthMonitoringRetrieveSerializer,
     SaderatBankHealthMonitoringUploadExcelSerializer,
 )
-from .serializers import SaderatBankHealthMonitoringListSerializer
+from .serializers import (
+    PresignRequestSerializer,
+    SaderatBankHealthMonitoringListSerializer,
+)
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.decorators import action
@@ -116,3 +122,71 @@ class SaderatBankHealthMonitoringViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response({'message': 'Excel uploaded successfully'})
+
+
+class PatientEntryViewSet(viewsets.ModelViewSet):
+    """Per-patient entries against a monitoring's field_schema.
+
+    Nothing here reads `SaderatBankHealthMonitoring.json`. Entries and the
+    Excel blob are independent stores that share a key.
+    """
+
+    queryset = PatientEntry.objects.prefetch_related('files')
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        summary='Sign an upload for one file field',
+        request=PresignRequestSerializer,
+        responses={
+            200: inline_serializer(
+                name='PresignResponse',
+                fields={
+                    'upload_url': drf_serializers.CharField(),
+                    'key': drf_serializers.CharField(),
+                    'headers': drf_serializers.DictField(),
+                    'expires_in': drf_serializers.IntegerField(),
+                },
+            ),
+            400: OpenApiResponse(
+                description='The schema does not permit this upload.'),
+            503: OpenApiResponse(description='Object storage unavailable.'),
+        },
+    )
+    @action(detail=False, methods=['post'])
+    def presign(self, request):
+        serializer = PresignRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        monitoring = data['monitoring']
+        field = find_field(monitoring.type.field_schema, data['field_key'])
+        if field is None or field.get('type') != 'file':
+            raise drf_serializers.ValidationError(
+                {'field_key': [
+                    f'{data["field_key"]!r} is not a file field of '
+                    f'{monitoring.type.slug!r}.']})
+
+        try:
+            check_upload(field, data['content_type'], data['size'])
+        except DjangoValidationError as error:
+            raise drf_serializers.ValidationError({'file': list(error.messages)})
+
+        key = build_key(
+            monitoring.id, data['national_id'],
+            data['field_key'], data['filename'])
+
+        try:
+            signed = presign_put(key, data['content_type'])
+        except S3Unavailable as error:
+            return Response(
+                {'detail': f'Object storage is unavailable: {error}'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response({
+            'upload_url': signed['url'],
+            'key': key,
+            'headers': signed['headers'],
+            'expires_in': signed['expires_in'],
+        })

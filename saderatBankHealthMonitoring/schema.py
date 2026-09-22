@@ -129,3 +129,42 @@ def find_field(document, key):
         if isinstance(field, dict) and field.get('key') == key:
             return field
     return None
+
+
+def mime_matches(patterns, content_type):
+    """Whether `content_type` satisfies any of `patterns`.
+
+    Supports `type/subtype`, `type/*` and `*/*`. Comparison is
+    case-insensitive because browsers are not consistent about it.
+    """
+    if not content_type:
+        return False
+    actual = content_type.split(';')[0].strip().lower()
+    for pattern in patterns or ['*/*']:
+        candidate = pattern.strip().lower()
+        if candidate == '*/*':
+            return True
+        if candidate == actual:
+            return True
+        if candidate.endswith('/*') and actual.startswith(candidate[:-1]):
+            return True
+    return False
+
+
+def check_upload(field, content_type, size):
+    """Raise ValidationError unless this upload satisfies `field`."""
+    accept = field.get('accept', ['*/*'])
+    if not mime_matches(accept, content_type):
+        raise ValidationError(
+            f'{content_type!r} is not accepted by '
+            f'{field["key"]!r}; allowed: {", ".join(accept)}.'
+        )
+
+    max_size_mb = field.get('max_size_mb')
+    if max_size_mb is not None:
+        limit = max_size_mb * 1024 * 1024
+        if size > limit:
+            raise ValidationError(
+                f'File is {size} bytes; {field["key"]!r} allows at most '
+                f'{max_size_mb} MB.'
+            )
