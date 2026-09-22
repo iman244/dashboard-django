@@ -118,14 +118,24 @@ jobs:
             # failing curl is the result, not an error to abort on.
             set -uo pipefail
             failed=0
-            for host in mainreport.ir api.mainreport.ir; do
+            # Each probe names a path that proves something. `/` on the API is
+            # NOT one of them: DRF has no root route, so it answers 404 whether
+            # the app is healthy or not -- the first version of this check read
+            # that as an outage. A real endpoint answering 401 proves routing,
+            # DRF and the database are all live, because the permission class
+            # had to run to refuse it.
+            probe() {
+              local host="$1" path="$2" code
               code="$(curl -sS -o /dev/null -m 15 -w '%{http_code}' \
-                        -H "Host: ${host}" http://127.0.0.1/ 2>/dev/null || echo 000)"
-              echo "  ${host} -> ${code}"
-              # 2xx and 3xx both mean it served; the dashboard answers 307 to /
-              # because next-intl redirects to a locale.
-              case "$code" in 2??|3??) ;; *) failed=1 ;; esac
-            done
+                        -H "Host: ${host}" "http://127.0.0.1${path}" 2>/dev/null || echo 000)"
+              echo "  ${host}${path} -> ${code}"
+              # 401/403 are successes here: something served and chose to
+              # refuse. 000, 5xx and 404 on a path that should exist are not.
+              case "$code" in 2??|3??|401|403) ;; *) failed=1 ;; esac
+            }
+            probe mainreport.ir /
+            probe api.mainreport.ir /api/saderat-bank-health-monitoring/monitoring-types/
+            probe api.mainreport.ir /static/admin/css/base.css
             echo
             echo "--- last 30 lines of django, in case it answered badly ---"
             docker compose -f /app/compose.yml logs --tail=30 --no-color django 2>&1 || true
@@ -135,7 +145,19 @@ jobs:
         # Runs even when the check above failed, so one report shows both.
         if: always()
         run: |
-          for url in http://mainreport.ir/ http://api.mainreport.ir/; do
+          for url in \
+            http://mainreport.ir/ \
+            http://api.mainreport.ir/api/saderat-bank-health-monitoring/monitoring-types/
+          do
             code="$(curl -sS -o /dev/null -m 25 -w '%{http_code}' "$url" 2>/dev/null || echo 000)"
+            echo "  ${url} -> ${code}"
+          done
+          # HTTPS is reported, never asserted: this stack has no TLS listener
+          # at all, so 000 here is the expected answer until one is added. It
+          # is printed because a browser tries HTTPS first, which is how the
+          # 2026-09-22 outage looked to users while every container was Up.
+          echo "  --- https, for information ---"
+          for url in https://mainreport.ir/ https://api.mainreport.ir/; do
+            code="$(curl -sS -o /dev/null -m 15 -w '%{http_code}' "$url" 2>/dev/null || echo 000)"
             echo "  ${url} -> ${code}"
           done
