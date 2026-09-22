@@ -2,11 +2,14 @@ import io
 
 import pandas as pd
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from .models import MonitoringType, SaderatBankHealthMonitoring
+from .schema import file_fields, find_field, validate_field_schema
 
 
 def excel_upload(rows):
@@ -195,3 +198,92 @@ class MonitoringTypeModelTests(APITestCase):
             name='March', type=step_1, json=[])
         self.assertEqual(str(step_1), 'Step 1')
         self.assertEqual(str(monitoring), 'March (Step 1)')
+
+
+def file_field(key='mri_image', **overrides):
+    """A minimal valid file field, with overrides merged in."""
+    field = {
+        'key': key,
+        'type': 'file',
+        'label_en': 'MRI Image',
+        'label_fa': 'تصویر ام‌آر‌آی',
+        'required': False,
+        'multiple': True,
+        'accept': ['image/jpeg'],
+        'max_size_mb': 50,
+        'max_count': 10,
+    }
+    field.update(overrides)
+    return field
+
+
+def schema(*fields):
+    return {'version': 1, 'fields': list(fields)}
+
+
+class FieldSchemaValidationTests(TestCase):
+    """The contract, enforced. No database involved."""
+
+    def assertRejects(self, document, fragment):
+        with self.assertRaises(DjangoValidationError) as caught:
+            validate_field_schema(document)
+        self.assertIn(fragment, str(caught.exception))
+
+    def test_empty_schema_is_valid(self):
+        self.assertIsNone(validate_field_schema({}))
+
+    def test_minimal_file_field_is_valid(self):
+        self.assertIsNone(validate_field_schema(schema(file_field())))
+
+    def test_rejects_non_dict(self):
+        self.assertRejects([], 'object')
+
+    def test_rejects_unknown_version(self):
+        self.assertRejects({'version': 2, 'fields': []}, 'version')
+
+    def test_rejects_fields_not_a_list(self):
+        self.assertRejects({'version': 1, 'fields': {}}, 'list')
+
+    def test_rejects_unsupported_type(self):
+        self.assertRejects(schema(file_field(type='string')), 'file')
+
+    def test_rejects_reserved_key(self):
+        self.assertRejects(schema(file_field(key='national_id')), 'reserved')
+
+    def test_rejects_malformed_key(self):
+        self.assertRejects(schema(file_field(key='MRI Image')), 'key')
+        self.assertRejects(schema(file_field(key='9lives')), 'key')
+        self.assertRejects(schema(file_field(key='has.dot')), 'key')
+
+    def test_rejects_duplicate_keys(self):
+        self.assertRejects(schema(file_field(), file_field()), 'duplicate')
+
+    def test_requires_both_labels(self):
+        self.assertRejects(schema(file_field(label_fa='')), 'label_fa')
+        field = file_field()
+        del field['label_en']
+        self.assertRejects(schema(field), 'label_en')
+
+    def test_rejects_non_positive_max_size(self):
+        self.assertRejects(schema(file_field(max_size_mb=0)), 'max_size_mb')
+
+    def test_rejects_non_positive_max_count(self):
+        self.assertRejects(schema(file_field(max_count=0)), 'max_count')
+
+    def test_rejects_empty_accept(self):
+        self.assertRejects(schema(file_field(accept=[])), 'accept')
+
+    def test_file_fields_returns_declarations(self):
+        document = schema(file_field('mri_image'), file_field('xms'))
+        self.assertEqual(
+            [f['key'] for f in file_fields(document)],
+            ['mri_image', 'xms'],
+        )
+
+    def test_file_fields_of_empty_schema(self):
+        self.assertEqual(file_fields({}), [])
+
+    def test_find_field_hits_and_misses(self):
+        document = schema(file_field('mri_image'))
+        self.assertEqual(find_field(document, 'mri_image')['key'], 'mri_image')
+        self.assertIsNone(find_field(document, 'absent'))
