@@ -1,0 +1,11 @@
+# venv holds darwin binaries; .env would bake secrets into an image layer.
+venv
+.env
+.env.*
+.git
+.github
+__pycache__
+*.pyc
+db.sqlite3
+staticfiles
+.DS_Store
