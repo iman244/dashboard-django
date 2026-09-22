@@ -10,6 +10,8 @@ from .models import (
 )
 from .national_id import normalize_national_id
 from .s3 import S3Unavailable, head_object, presign_get
+from drf_spectacular.utils import extend_schema_field
+
 from .schema import check_upload, find_field
 
 
@@ -119,6 +121,9 @@ class PatientEntryFileSerializer(serializers.ModelSerializer):
                   'content_type', 'size', 'url']
         read_only_fields = ['id', 'url']
 
+    # Without this the generated client types `url` as a plain string, but a
+    # read with storage unreachable returns null.
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_url(self, obj):
         try:
             return presign_get(obj.key)
