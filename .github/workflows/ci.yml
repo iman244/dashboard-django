@@ -14,6 +14,7 @@ on:
   pull_request:
   push:
     branches: [main]
+    tags: ['**']
   workflow_dispatch:
 
 concurrency:
@@ -61,14 +62,14 @@ jobs:
 
   deploy:
     needs: test
-    # Never from a pull request, and never from a branch: a manual run on a
-    # feature branch would otherwise deploy that branch over production.
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    # Only pushed tags deploy. Branch pushes, PRs and manual runs check only.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.2.5
         env:
+          DEPLOY_SHA: ${{ github.sha }}
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           SECRET_KEY: ${{ secrets.SECRET_KEY }}
           ALLOWED_HOSTS: ${{ secrets.ALLOWED_HOSTS }}
@@ -82,7 +83,7 @@ jobs:
           # Forwarded into the remote shell, where deploy.sh writes them into
           # /app/.env. DEBUG is absent on purpose: this app reads it without a
           # bool cast, so the string "False" is truthy and would turn debug ON.
-          envs: DB_PASSWORD,SECRET_KEY,ALLOWED_HOSTS,ADMIN_USERNAME,ADMIN_EMAIL,ADMIN_PASSWORD
+          envs: DEPLOY_SHA,DB_PASSWORD,SECRET_KEY,ALLOWED_HOSTS,ADMIN_USERNAME,ADMIN_EMAIL,ADMIN_PASSWORD
           command_timeout: 30m
           # /app is a clone of mainreport-platform, where deploy.sh lives. Nothing
           # else updates it, so refresh it here: the script has to be current at
