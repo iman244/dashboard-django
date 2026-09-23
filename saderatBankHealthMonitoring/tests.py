@@ -681,8 +681,11 @@ class PatientEntryApiTests(APITestCase):
         get.start()
         self.addCleanup(get.stop)
 
-    def file_payload(self, key='entries/1/0012345678/mri_image/abc.jpg'):
-        return {'field_key': 'mri_image', 'key': key,
+    def key(self, name='abc.jpg', national_id='0012345678'):
+        return f'entries/{self.monitoring.id}/{national_id}/mri_image/{name}'
+
+    def file_payload(self, key=None):
+        return {'field_key': 'mri_image', 'key': key or self.key(),
                 'original_name': 'scan.jpg', 'content_type': 'image/jpeg',
                 'size': 1024}
 
@@ -729,16 +732,16 @@ class PatientEntryApiTests(APITestCase):
 
     def test_max_count_is_enforced(self):
         response = self.create(files=[
-            self.file_payload('entries/1/0012345678/mri_image/a.jpg'),
-            self.file_payload('entries/1/0012345678/mri_image/b.jpg'),
-            self.file_payload('entries/1/0012345678/mri_image/c.jpg'),
+            self.file_payload(self.key('a.jpg')),
+            self.file_payload(self.key('b.jpg')),
+            self.file_payload(self.key('c.jpg')),
         ])
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_duplicate_national_id_conflicts(self):
         self.create()
         response = self.create(
-            files=[self.file_payload('entries/1/0012345678/mri_image/d.jpg')])
+            files=[self.file_payload(self.key('d.jpg'))])
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertIn('id', response.data)
 
@@ -747,7 +750,7 @@ class PatientEntryApiTests(APITestCase):
         self.create()
         response = self.create(
             national_id='۰۰۱۲۳۴۵۶۷۸',
-            files=[self.file_payload('entries/1/0012345678/mri_image/e.jpg')])
+            files=[self.file_payload(self.key('e.jpg'))])
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
 
     def test_filter_by_monitoring_and_national_id(self):
@@ -762,13 +765,66 @@ class PatientEntryApiTests(APITestCase):
         response = self.client.patch(
             reverse('patient-entries-detail', args=[entry_id]),
             {'files': [
-                self.file_payload('entries/1/0012345678/mri_image/new.jpg')]},
+                self.file_payload(self.key('new.jpg'))]},
             format='json',
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(PatientEntryFile.objects.count(), 1)
         self.assertEqual(response.data['files'][0]['original_name'],
                          'scan.jpg')
+
+    def test_editing_does_not_reverify_images_already_on_the_record(self):
+        """Fixing a typo must not depend on storage being reachable."""
+        entry_id = self.create().data['id']
+        self.head_object.side_effect = S3Unavailable('unreachable')
+        response = self.client.patch(
+            reverse('patient-entries-detail', args=[entry_id]),
+            {'files': [self.file_payload()]},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK,
+                         response.data)
+
+    def test_edit_keeps_existing_images_and_adds_new_ones(self):
+        """The ordinary edit: nothing removed, one image added."""
+        entry_id = self.create().data['id']
+        response = self.client.patch(
+            reverse('patient-entries-detail', args=[entry_id]),
+            {'files': [self.file_payload(),
+                       self.file_payload(self.key('second.jpg'))]},
+            format='json',
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK,
+                         response.data)
+        self.assertEqual(
+            sorted(PatientEntryFile.objects.values_list('key', flat=True)),
+            sorted([self.key(), self.key('second.jpg')]),
+        )
+
+    def test_new_image_from_another_records_folder_is_refused(self):
+        """An upload is only attachable to the record it was signed for."""
+        response = self.create(files=[
+            self.file_payload(self.key('x.jpg', national_id='9999999999'))])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(PatientEntry.objects.count(), 0)
+
+    def test_failed_edit_keeps_the_images_it_had(self):
+        """Replacing the image set is all-or-nothing."""
+        entry_id = self.create().data['id']
+        self.client.raise_request_exception = False
+        with mock.patch.object(
+                PatientEntryFile.objects, 'bulk_create',
+                side_effect=IntegrityError('boom')):
+            response = self.client.patch(
+                reverse('patient-entries-detail', args=[entry_id]),
+                {'files': [self.file_payload(self.key('replacement.jpg'))]},
+                format='json',
+            )
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(
+            list(PatientEntryFile.objects.values_list('key', flat=True)),
+            [self.key()],
+        )
 
     def test_delete_removes_entry_and_files(self):
         entry_id = self.create().data['id']

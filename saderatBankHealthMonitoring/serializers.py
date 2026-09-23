@@ -1,5 +1,6 @@
 import pandas as pd
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import transaction
 from rest_framework import serializers
 from rest_framework.validators import UniqueTogetherValidator
 from .models import (
@@ -126,6 +127,12 @@ class PatientEntryFileSerializer(serializers.ModelSerializer):
         fields = ['id', 'field_key', 'key', 'original_name',
                   'content_type', 'size', 'url']
         read_only_fields = ['id', 'url']
+        # No UniqueValidator on `key`. The model's unique=True would add one,
+        # and it rejects an edit that sends back an image the record already
+        # has -- which is every edit that keeps its images. Uniqueness is
+        # still enforced by the database, and PatientEntrySerializer.validate
+        # refuses keys that were not uploaded for this record.
+        extra_kwargs = {'key': {'validators': []}}
 
     # Without this the generated client types `url` as a plain string, but a
     # read with storage unreachable returns null.
@@ -177,6 +184,16 @@ class PatientEntrySerializer(serializers.ModelSerializer):
         if files is None:
             return attrs
 
+        # Images already on this record were verified when they were attached.
+        # Checking them again on every edit made fixing a typo depend on
+        # storage being reachable, and proved nothing new.
+        attached = (
+            set(self.instance.files.values_list('key', flat=True))
+            if self.instance is not None else set()
+        )
+        national_id = attrs.get('national_id') or getattr(
+            self.instance, 'national_id', '')
+
         counts = {}
         for descriptor in files:
             field_key = descriptor['field_key']
@@ -195,6 +212,20 @@ class PatientEntrySerializer(serializers.ModelSerializer):
             if not is_multiple(field) and counts[field_key] > 1:
                 raise serializers.ValidationError(
                     {'files': [f'{field_key!r} accepts one image.']})
+
+            if descriptor['key'] in attached:
+                continue
+
+            # A new image must be one signed for THIS record. Presign files
+            # every upload under entries/<monitoring>/<national id>/<field>/,
+            # so a key from anywhere else is another patient's image being
+            # claimed -- the size check alone would happily accept it.
+            expected = (
+                f'entries/{monitoring.id}/{national_id}/{field_key}/')
+            if not descriptor['key'].startswith(expected):
+                raise serializers.ValidationError(
+                    {'files': [f'{descriptor["key"]!r} was not uploaded for '
+                               f'this record.']})
 
             try:
                 check_upload(field, descriptor['content_type'],
@@ -223,12 +254,16 @@ class PatientEntrySerializer(serializers.ModelSerializer):
 
         return attrs
 
+    # Atomic, because replacing the image set is delete-then-insert: without
+    # a transaction, an insert that fails leaves the record with no images.
+    @transaction.atomic
     def create(self, validated_data):
         files = validated_data.pop('files', [])
         entry = PatientEntry.objects.create(**validated_data)
         self._replace_files(entry, files)
         return entry
 
+    @transaction.atomic
     def update(self, instance, validated_data):
         files = validated_data.pop('files', None)
         for attribute, value in validated_data.items():
