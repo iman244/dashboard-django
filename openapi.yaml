@@ -1035,6 +1035,42 @@ paths:
           description: The schema does not permit this upload.
         '503':
           description: Object storage unavailable.
+  /api/saderat-bank-health-monitoring/patient-records/:
+    get:
+      operationId: saderat_bank_health_monitoring_patient_records_list
+      description: |-
+        Everything recorded for one patient, for display.
+
+        Open to anonymous callers because the patient portal has no sign-in of
+        its own (the upstream EHR it fronts takes no credentials either). The
+        national ID is therefore the only key: this never answers without a
+        well-formed one, and anonymous callers are throttled.
+      summary: A patient's records across every monitoring
+      parameters:
+      - in: query
+        name: national_id
+        schema:
+          type: string
+        description: Ten digits; Persian and Arabic-Indic digits accepted.
+        required: true
+      tags:
+      - saderat-bank-health-monitoring
+      security:
+      - jwtAuth: []
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PatientRecord'
+          description: ''
+        '400':
+          description: Missing or malformed national_id.
+        '429':
+          description: Too many anonymous requests.
 components:
   schemas:
     Activation:
@@ -1297,6 +1333,43 @@ components:
       required:
       - monitoring
       - national_id
+    PatientRecord:
+      type: object
+      description: |-
+        One of a patient's entries, with the monitoring it belongs to.
+
+        Read-only, and self-contained on purpose: the patient portal cannot read
+        monitoring types (that endpoint needs a sign-in), so each record carries
+        the names and field_schema needed to label and order what it holds.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        monitoring:
+          allOf:
+          - $ref: '#/components/schemas/MonitoringType'
+          readOnly: true
+        national_id:
+          type: string
+          readOnly: true
+        values:
+          readOnly: true
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/PatientEntryFile'
+          readOnly: true
+        updated_at:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - files
+      - id
+      - monitoring
+      - national_id
+      - updated_at
+      - values
     PresignRequestRequest:
       type: object
       description: What the browser must state before Django will sign anything.

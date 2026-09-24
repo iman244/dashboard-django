@@ -2,6 +2,7 @@ from django.urls import path, include
 from .views import (
     MonitoringTypeViewSet,
     PatientEntryViewSet,
+    PatientRecordsView,
     SaderatBankHealthMonitoringViewSet,
 )
 from rest_framework.routers import DefaultRouter
@@ -12,5 +13,7 @@ router.register(r'monitoring-types', MonitoringTypeViewSet, basename='monitoring
 router.register(r'patient-entries', PatientEntryViewSet, basename='patient-entries')
 
 urlpatterns = [
+    path('patient-records/', PatientRecordsView.as_view(),
+         name='patient-records'),
     path('', include(router.urls)),
 ]

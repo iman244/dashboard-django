@@ -1,7 +1,7 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import ProtectedError
-from rest_framework import permissions, status, viewsets
+from rest_framework import generics, permissions, status, viewsets
 from .models import MonitoringType, PatientEntry, SaderatBankHealthMonitoring
 from .s3 import S3Unavailable, build_key, presign_put
 from .schema import IMAGE, check_upload, find_field
@@ -13,14 +13,17 @@ from .serializers import (
 from .national_id import normalize_national_id
 from .serializers import (
     PatientEntrySerializer,
+    PatientRecordSerializer,
     PresignRequestSerializer,
     SaderatBankHealthMonitoringListSerializer,
 )
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from drf_spectacular.utils import (
+    OpenApiParameter,
     OpenApiResponse,
     extend_schema,
     extend_schema_view,
@@ -244,3 +247,58 @@ class PatientEntryViewSet(viewsets.ModelViewSet):
             'headers': signed['headers'],
             'expires_in': signed['expires_in'],
         })
+
+
+class PatientRecordsAnonThrottle(AnonRateThrottle):
+    """Caps anonymous reads per IP; signed-in users are not counted at all.
+
+    The rate lives here rather than in settings because it is part of what
+    makes this endpoint safe to leave open, not a tunable. Counts are per
+    process (the default local-memory cache), so the effective ceiling is
+    this times the number of gunicorn workers -- still far too slow to walk
+    the national ID space.
+    """
+
+    scope = 'patient_records'
+    rate = '30/min'
+
+
+@extend_schema(
+    summary="A patient's records across every monitoring",
+    parameters=[OpenApiParameter(
+        'national_id', str, required=True,
+        description='Ten digits; Persian and Arabic-Indic digits accepted.')],
+    responses={
+        200: PatientRecordSerializer(many=True),
+        400: OpenApiResponse(description='Missing or malformed national_id.'),
+        429: OpenApiResponse(description='Too many anonymous requests.'),
+    },
+)
+class PatientRecordsView(generics.ListAPIView):
+    """Everything recorded for one patient, for display.
+
+    Open to anonymous callers because the patient portal has no sign-in of
+    its own (the upstream EHR it fronts takes no credentials either). The
+    national ID is therefore the only key: this never answers without a
+    well-formed one, and anonymous callers are throttled.
+    """
+
+    serializer_class = PatientRecordSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [AllowAny]
+    throttle_classes = [PatientRecordsAnonThrottle]
+    pagination_class = None
+
+    def list(self, request, *args, **kwargs):
+        national_id = normalize_national_id(
+            request.query_params.get('national_id', ''))
+        if not (len(national_id) == 10 and national_id.isdigit()):
+            return Response(
+                {'national_id': ['A ten-digit national ID is required.']},
+                status=status.HTTP_400_BAD_REQUEST)
+        records = (PatientEntry.objects
+                   .filter(national_id=national_id)
+                   .select_related('monitoring')
+                   .prefetch_related('files')
+                   .order_by('monitoring__name_en'))
+        return Response(self.get_serializer(records, many=True).data)

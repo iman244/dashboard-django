@@ -894,3 +894,108 @@ class PatientEntryValuesApiTests(APITestCase):
         response = self.create(
             {'personnel_code': '0000000042', 'ghost': '1'})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class PatientRecordsApiTests(APITestCase):
+    """One patient's records across every monitoring, for display.
+
+    Readable without signing in, because the patient portal has no sign-in
+    of its own. That makes the national ID the only key, so the endpoint must
+    never answer without one, and anonymous callers are rate-limited so it
+    cannot be walked through ID by ID.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        schema = {
+            'version': 1,
+            'fields': [
+                {'key': 'bp', 'type': 'digit_string', 'label_en': 'BP',
+                 'label_fa': 'فشار خون'},
+                {'key': 'scan', 'type': 'image', 'label_en': 'Scan',
+                 'label_fa': 'اسکن'},
+            ],
+        }
+        cls.mri = MonitoringType.objects.create(
+            slug='mri', name_en='MRI', name_fa='ام‌آر‌آی', field_schema=schema)
+        cls.lab = MonitoringType.objects.create(
+            slug='lab', name_en='Lab', name_fa='آزمایش', field_schema=schema)
+        cls.entry = PatientEntry.objects.create(
+            monitoring=cls.mri, national_id='0012345678', values={'bp': '120'})
+        PatientEntryFile.objects.create(
+            entry=cls.entry, field_key='scan',
+            key=f'entries/{cls.mri.id}/0012345678/scan/a.jpg',
+            original_name='a.jpg', content_type='image/jpeg', size=10)
+        PatientEntry.objects.create(
+            monitoring=cls.lab, national_id='0012345678', values={'bp': '90'})
+        PatientEntry.objects.create(
+            monitoring=cls.lab, national_id='0099999999', values={'bp': '80'})
+        User = get_user_model()
+        cls.user = User.objects.create_user('viewer', 'v@example.com', 'pw')
+
+    def setUp(self):
+        # Throttle counts live in the cache; a previous test's requests must
+        # not count against this one.
+        from django.core.cache import cache
+        cache.clear()
+        get = mock.patch(
+            'saderatBankHealthMonitoring.serializers.presign_get',
+            return_value='https://example.invalid/read')
+        get.start()
+        self.addCleanup(get.stop)
+
+    def fetch(self, national_id='0012345678'):
+        params = {} if national_id is None else {'national_id': national_id}
+        return self.client.get(reverse('patient-records'), params)
+
+    def test_lists_every_monitoring_for_the_patient_and_nobody_else(self):
+        response = self.fetch()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            sorted(r['monitoring']['slug'] for r in response.data),
+            ['lab', 'mri'])
+        values = sorted(r['values']['bp'] for r in response.data)
+        self.assertEqual(values, ['120', '90'])
+
+    def test_carries_what_the_page_needs_to_render(self):
+        record = next(r for r in self.fetch().data
+                      if r['monitoring']['slug'] == 'mri')
+        self.assertEqual(record['monitoring']['name_fa'], 'ام‌آر‌آی')
+        self.assertEqual(
+            [f['key'] for f in record['monitoring']['field_schema']['fields']],
+            ['bp', 'scan'])
+        self.assertEqual(record['files'][0]['url'],
+                         'https://example.invalid/read')
+
+    def test_is_readable_without_signing_in(self):
+        self.assertEqual(self.fetch().status_code, status.HTTP_200_OK)
+
+    def test_refuses_to_answer_without_a_national_id(self):
+        self.assertEqual(self.fetch(None).status_code,
+                         status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self.fetch('').status_code,
+                         status.HTTP_400_BAD_REQUEST)
+
+    def test_refuses_anything_that_is_not_a_national_id(self):
+        for bad in ('123', '00123456789', '00123x5678'):
+            self.assertEqual(self.fetch(bad).status_code,
+                             status.HTTP_400_BAD_REQUEST, bad)
+
+    def test_accepts_persian_digits(self):
+        response = self.fetch('۰۰۱۲۳۴۵۶۷۸')
+        self.assertEqual(len(response.data), 2)
+
+    def test_unknown_patient_is_an_empty_list(self):
+        response = self.fetch('0000000001')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data, [])
+
+    def test_anonymous_callers_are_rate_limited(self):
+        codes = [self.fetch().status_code for _ in range(31)]
+        self.assertEqual(codes[:30], [status.HTTP_200_OK] * 30)
+        self.assertEqual(codes[30], status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_signed_in_staff_are_not_rate_limited(self):
+        self.client.force_authenticate(self.user)
+        codes = {self.fetch().status_code for _ in range(40)}
+        self.assertEqual(codes, {status.HTTP_200_OK})

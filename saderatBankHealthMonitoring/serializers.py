@@ -285,3 +285,21 @@ class PatientEntrySerializer(serializers.ModelSerializer):
             PatientEntryFile(entry=entry, **descriptor)
             for descriptor in descriptors
         ])
+
+
+class PatientRecordSerializer(serializers.ModelSerializer):
+    """One of a patient's entries, with the monitoring it belongs to.
+
+    Read-only, and self-contained on purpose: the patient portal cannot read
+    monitoring types (that endpoint needs a sign-in), so each record carries
+    the names and field_schema needed to label and order what it holds.
+    """
+
+    monitoring = MonitoringTypeSerializer(read_only=True)
+    files = PatientEntryFileSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = PatientEntry
+        fields = ['id', 'monitoring', 'national_id', 'values', 'files',
+                  'updated_at']
+        read_only_fields = fields
