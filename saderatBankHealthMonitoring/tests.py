@@ -585,7 +585,8 @@ class PresignTests(APITestCase):
         )
         cls.monitoring = cls.type
         User = get_user_model()
-        cls.user = User.objects.create_user('op', 'op@example.com', 'pw')
+        cls.user = User.objects.create_user(
+            'op', 'op@example.com', 'pw', is_staff=True)
 
     def setUp(self):
         self.client.force_authenticate(self.user)
@@ -666,7 +667,8 @@ class PatientEntryApiTests(APITestCase):
         )
         cls.monitoring = cls.type
         User = get_user_model()
-        cls.user = User.objects.create_user('op2', 'op2@example.com', 'pw')
+        cls.user = User.objects.create_user(
+            'op2', 'op2@example.com', 'pw', is_staff=True)
 
     def setUp(self):
         self.client.force_authenticate(self.user)
@@ -857,7 +859,8 @@ class PatientEntryValuesApiTests(APITestCase):
         )
         cls.monitoring = cls.type
         User = get_user_model()
-        cls.user = User.objects.create_user('op3', 'op3@example.com', 'pw')
+        cls.user = User.objects.create_user(
+            'op3', 'op3@example.com', 'pw', is_staff=True)
 
     def setUp(self):
         self.client.force_authenticate(self.user)
@@ -999,3 +1002,64 @@ class PatientRecordsApiTests(APITestCase):
         self.client.force_authenticate(self.user)
         codes = {self.fetch().status_code for _ in range(40)}
         self.assertEqual(codes, {status.HTTP_200_OK})
+
+
+class PatientEntryStaffOnlyWritesTests(APITestCase):
+    """Anyone signed in may read records; only staff may change them."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.monitoring = MonitoringType.objects.create(
+            slug='gate', name_en='Gate', name_fa='دروازه',
+            field_schema={'version': 1, 'fields': [
+                {'key': 'bp', 'type': 'digit_string', 'label_en': 'BP',
+                 'label_fa': 'فشار'},
+                {'key': 'scan', 'type': 'image', 'label_en': 'Scan',
+                 'label_fa': 'اسکن'},
+            ]},
+        )
+        cls.entry = PatientEntry.objects.create(
+            monitoring=cls.monitoring, national_id='0012345678',
+            values={'bp': '120'})
+        User = get_user_model()
+        cls.member = User.objects.create_user('member', 'm@example.com', 'pw')
+
+    def setUp(self):
+        self.client.force_authenticate(self.member)
+
+    def test_member_can_list_and_read(self):
+        listed = self.client.get(reverse('patient-entries-list'),
+                                 {'monitoring': self.monitoring.id})
+        self.assertEqual(listed.status_code, status.HTTP_200_OK)
+        one = self.client.get(
+            reverse('patient-entries-detail', args=[self.entry.id]))
+        self.assertEqual(one.status_code, status.HTTP_200_OK)
+
+    def test_member_cannot_create(self):
+        response = self.client.post(reverse('patient-entries-list'), {
+            'monitoring': self.monitoring.id, 'national_id': '0099999999',
+            'values': {'bp': '90'}}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(
+            PatientEntry.objects.filter(national_id='0099999999').exists())
+
+    def test_member_cannot_edit(self):
+        response = self.client.patch(
+            reverse('patient-entries-detail', args=[self.entry.id]),
+            {'values': {'bp': '999'}}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.entry.refresh_from_db()
+        self.assertEqual(self.entry.values, {'bp': '120'})
+
+    def test_member_cannot_delete(self):
+        response = self.client.delete(
+            reverse('patient-entries-detail', args=[self.entry.id]))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(PatientEntry.objects.filter(pk=self.entry.pk).exists())
+
+    def test_member_cannot_get_an_upload_url(self):
+        response = self.client.post(reverse('patient-entries-presign'), {
+            'monitoring': self.monitoring.id, 'national_id': '0012345678',
+            'field_key': 'scan', 'filename': 'a.jpg',
+            'content_type': 'image/jpeg', 'size': 10}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

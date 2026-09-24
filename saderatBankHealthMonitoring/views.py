@@ -35,12 +35,12 @@ from rest_framework import serializers as drf_serializers
 class IsStaffOrReadOnly(permissions.BasePermission):
     """Any signed-in user may read; only staff may write.
 
-    Monitoring types are referenced by every report, so editing one is an
-    administrative act. `is_staff` is already on the user payload the
+    Used for monitoring types, which every report references, and for patient
+    records and their uploads. `is_staff` is already on the user payload the
     dashboard receives, so the client can gate the same actions in its UI.
     """
 
-    message = 'Only staff users may modify monitoring types.'
+    message = 'Only staff users may make changes.'
 
     def has_permission(self, request, view):
         if not (request.user and request.user.is_authenticated):
@@ -154,7 +154,9 @@ class PatientEntryViewSet(viewsets.ModelViewSet):
     queryset = PatientEntry.objects.prefetch_related('files')
     serializer_class = PatientEntrySerializer
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
+    # Reading is open to every signed-in user; adding, editing, deleting and
+    # asking for an upload URL (presign is a POST) are staff-only.
+    permission_classes = [IsStaffOrReadOnly]
 
     def get_queryset(self):
         queryset = super().get_queryset()
