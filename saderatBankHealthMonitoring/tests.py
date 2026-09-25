@@ -835,6 +835,69 @@ class PatientEntryApiTests(APITestCase):
         self.assertEqual(PatientEntryFile.objects.count(), 0)
 
 
+    # --- identity is fixed once a record exists ---------------------------
+
+    def detail(self, entry_id):
+        return reverse('patient-entries-detail', args=[entry_id])
+
+    def test_edit_cannot_move_a_record_to_another_patient(self):
+        entry_id = self.create().data['id']
+        response = self.client.patch(
+            self.detail(entry_id), {'national_id': '0099999999'},
+            format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(PatientEntry.objects.get(pk=entry_id).national_id,
+                         '0012345678')
+
+    def test_edit_cannot_move_a_record_to_another_monitoring(self):
+        entry_id = self.create().data['id']
+        other = MonitoringType.objects.create(
+            slug='other2', name_en='Other', name_fa='دیگر',
+            field_schema=self.monitoring.field_schema)
+        response = self.client.patch(
+            self.detail(entry_id), {'monitoring': other.id}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(PatientEntry.objects.get(pk=entry_id).monitoring_id,
+                         self.monitoring.id)
+
+    def test_edit_may_resend_the_same_identity(self):
+        entry_id = self.create().data['id']
+        response = self.client.patch(self.detail(entry_id), {
+            'national_id': '0012345678', 'monitoring': self.monitoring.id,
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    # --- required images ------------------------------------------------------
+
+    def test_create_without_a_required_image_is_refused(self):
+        response = self.create(files=[])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('files', response.data)
+
+    def test_edit_cannot_remove_the_last_required_image(self):
+        entry_id = self.create().data['id']
+        response = self.client.patch(
+            self.detail(entry_id), {'files': []}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(PatientEntry.objects.get(pk=entry_id).files.count(),
+                         1)
+
+    def test_edit_that_leaves_files_alone_keeps_the_required_image(self):
+        entry_id = self.create().data['id']
+        response = self.client.patch(
+            self.detail(entry_id), {'values': {}}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    # --- one key, one file ------------------------------------------------
+
+    def test_the_same_image_twice_is_a_400_not_a_conflict(self):
+        response = self.create(files=[self.file_payload(),
+                                      self.file_payload()])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('files', response.data)
+        self.assertFalse(PatientEntry.objects.exists())
+
+
 class PatientEntryValuesApiTests(APITestCase):
     """digit_string values travel through the API as strings."""
 
@@ -998,10 +1061,14 @@ class PatientRecordsApiTests(APITestCase):
         self.assertEqual(codes[:30], [status.HTTP_200_OK] * 30)
         self.assertEqual(codes[30], status.HTTP_429_TOO_MANY_REQUESTS)
 
-    def test_signed_in_staff_are_not_rate_limited(self):
+    def test_signed_in_users_get_a_higher_limit(self):
+        # Staff pages look patients up one page view at a time, so 120 a
+        # minute never bites them -- but a signed-in account still cannot
+        # walk the national ID space unthrottled.
         self.client.force_authenticate(self.user)
-        codes = {self.fetch().status_code for _ in range(40)}
-        self.assertEqual(codes, {status.HTTP_200_OK})
+        codes = [self.fetch().status_code for _ in range(121)]
+        self.assertEqual(set(codes[:120]), {status.HTTP_200_OK})
+        self.assertEqual(codes[120], status.HTTP_429_TOO_MANY_REQUESTS)
 
 
 class PatientEntryStaffOnlyWritesTests(APITestCase):

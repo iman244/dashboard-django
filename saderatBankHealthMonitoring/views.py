@@ -18,7 +18,7 @@ from .serializers import (
     SaderatBankHealthMonitoringListSerializer,
 )
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.throttling import AnonRateThrottle
+from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -265,6 +265,17 @@ class PatientRecordsAnonThrottle(AnonRateThrottle):
     rate = '30/min'
 
 
+class PatientRecordsUserThrottle(UserRateThrottle):
+    """A looser cap for signed-in users, counted per account.
+
+    Staff pages look a patient up once per page view, so this never bites
+    them; it only stops a signed-in account walking the national ID space.
+    """
+
+    scope = 'patient_records_user'
+    rate = '120/min'
+
+
 @extend_schema(
     summary="A patient's records across every monitoring",
     parameters=[OpenApiParameter(
@@ -288,7 +299,7 @@ class PatientRecordsView(generics.ListAPIView):
     serializer_class = PatientRecordSerializer
     authentication_classes = [JWTAuthentication]
     permission_classes = [AllowAny]
-    throttle_classes = [PatientRecordsAnonThrottle]
+    throttle_classes = [PatientRecordsAnonThrottle, PatientRecordsUserThrottle]
     pagination_class = None
 
     def list(self, request, *args, **kwargs):

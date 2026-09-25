@@ -17,6 +17,7 @@ from .schema import (
     IMAGE,
     check_upload,
     find_field,
+    image_fields,
     is_multiple,
     validate_values,
 )
@@ -167,6 +168,17 @@ class PatientEntrySerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         """Check values and files against the type's schema and the bucket."""
+        # Who and what a record is about is fixed once it exists. Moving it
+        # would carry its images -- stored under the old patient's folder --
+        # to another patient, and its values to a schema they were never
+        # checked against. Resending the same identity is harmless.
+        if self.instance is not None:
+            for name in ('national_id', 'monitoring'):
+                if name in attrs and attrs[name] != getattr(
+                        self.instance, name):
+                    raise serializers.ValidationError(
+                        {name: ['Cannot be changed once the record exists.']})
+
         monitoring = attrs.get('monitoring') or getattr(
             self.instance, 'monitoring', None)
         schema_document = monitoring.field_schema
@@ -180,9 +192,13 @@ class PatientEntrySerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {'values': list(error.messages)})
 
+        # An update that leaves `files` out keeps the images it has, so there
+        # is nothing to check. A create without files is checked as an empty
+        # list, or a required image could be skipped by omitting the key.
         files = attrs.get('files')
-        if files is None:
+        if files is None and self.instance is not None:
             return attrs
+        files = files or []
 
         # Images already on this record were verified when they were attached.
         # Checking them again on every edit made fixing a typo depend on
@@ -195,7 +211,17 @@ class PatientEntrySerializer(serializers.ModelSerializer):
             self.instance, 'national_id', '')
 
         counts = {}
+        seen = set()
         for descriptor in files:
+            # Listed twice, the second insert would hit the unique key and
+            # surface as "this patient already has an entry" -- a 409 naming
+            # no entry. Refuse it here, as the field error it is.
+            if descriptor['key'] in seen:
+                raise serializers.ValidationError(
+                    {'files': [f'{descriptor["key"]!r} is listed more than '
+                               f'once.']})
+            seen.add(descriptor['key'])
+
             field_key = descriptor['field_key']
             field = find_field(schema_document, field_key)
             if field is None or field.get('type') != IMAGE:
@@ -251,6 +277,15 @@ class PatientEntrySerializer(serializers.ModelSerializer):
                     {'files': [
                         f'{descriptor["key"]!r} is {stored["size"]} bytes in '
                         f'storage but was declared as {descriptor["size"]}.']})
+
+        # The submitted list replaces the record's images, so it must still
+        # hold at least one for every required image field.
+        missing = [field['key'] for field in image_fields(schema_document)
+                   if field.get('required') and not counts.get(field['key'])]
+        if missing:
+            raise serializers.ValidationError(
+                {'files': [f'{key!r} needs at least one image.'
+                           for key in missing]})
 
         return attrs
 
