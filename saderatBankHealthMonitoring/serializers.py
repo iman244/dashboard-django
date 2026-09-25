@@ -23,6 +23,19 @@ from .schema import (
 )
 
 
+def full_national_id(value):
+    """Normalised, and exactly ten digits -- what every national ID is.
+
+    Anything shorter could be saved but never found again: patient pages look
+    records up by the full ten digits.
+    """
+    national_id = normalize_national_id(value)
+    if not (len(national_id) == 10 and national_id.isdigit()):
+        raise serializers.ValidationError(
+            'A national ID is exactly ten digits.')
+    return national_id
+
+
 class MonitoringTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = MonitoringType
@@ -115,7 +128,7 @@ class PresignRequestSerializer(serializers.Serializer):
     size = serializers.IntegerField(min_value=1)
 
     def validate_national_id(self, value):
-        return normalize_national_id(value)
+        return full_national_id(value)
 
 
 class PatientEntryFileSerializer(serializers.ModelSerializer):
@@ -164,7 +177,7 @@ class PatientEntrySerializer(serializers.ModelSerializer):
         validators = []
 
     def validate_national_id(self, value):
-        return normalize_national_id(value)
+        return full_national_id(value)
 
     def validate(self, attrs):
         """Check values and files against the type's schema and the bucket."""

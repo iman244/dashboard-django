@@ -898,6 +898,22 @@ class PatientEntryApiTests(APITestCase):
         self.assertFalse(PatientEntry.objects.exists())
 
 
+    # --- a national ID is ten digits ---------------------------------------
+
+    def test_a_short_national_id_is_refused(self):
+        response = self.create(national_id='123456789', files=[])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('national_id', response.data)
+
+    def test_an_upload_url_needs_a_full_national_id(self):
+        response = self.client.post(reverse('patient-entries-presign'), {
+            'monitoring': self.monitoring.id, 'national_id': '123456789',
+            'field_key': 'mri_image', 'filename': 'a.jpg',
+            'content_type': 'image/jpeg', 'size': 10}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('national_id', response.data)
+
+
 class PatientEntryValuesApiTests(APITestCase):
     """digit_string values travel through the API as strings."""
 
