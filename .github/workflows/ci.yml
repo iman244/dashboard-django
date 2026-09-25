@@ -76,6 +76,12 @@ jobs:
           ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
           ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          # Arvan object storage. Local development uses MinIO from
+          # mainreport-platform's `dev` compose profile instead.
+          S3_ENDPOINT_URL: ${{ secrets.S3_ENDPOINT_URL }}
+          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
+          S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
@@ -83,7 +89,7 @@ jobs:
           # Forwarded into the remote shell, where deploy.sh writes them into
           # /app/.env. DEBUG is absent on purpose: this app reads it without a
           # bool cast, so the string "False" is truthy and would turn debug ON.
-          envs: DEPLOY_SHA,DB_PASSWORD,SECRET_KEY,ALLOWED_HOSTS,ADMIN_USERNAME,ADMIN_EMAIL,ADMIN_PASSWORD
+          envs: DEPLOY_SHA,DB_PASSWORD,SECRET_KEY,ALLOWED_HOSTS,ADMIN_USERNAME,ADMIN_EMAIL,ADMIN_PASSWORD,S3_ENDPOINT_URL,S3_ACCESS_KEY,S3_SECRET_KEY,S3_BUCKET
           command_timeout: 30m
           # /app is a clone of mainreport-platform, where deploy.sh lives. Nothing
           # else updates it, so refresh it here: the script has to be current at
