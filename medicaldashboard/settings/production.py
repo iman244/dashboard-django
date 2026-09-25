@@ -1,28 +1,16 @@
 from .base import *
 
-CSRF_TRUSTED_ORIGINS = [
-    "https://medicdashboard-django.liara.run",
-    "https://medicdashboard-nextjs.liara.run",
-    "https://api.mainreport.ir",
-    "https://mainreport.ir",
-    "http://87.107.111.36:8000",  # Django API
-    "http://87.107.111.36:3000",  # Next.js app
-    "http://localhost:3000",      # Local development
-]
-
-ALLOWED_HOSTS = ['*']
-
-CORS_ALLOWED_ORIGINS = [
-    "https://medicdashboard-django.liara.run",
-    "https://medicdashboard-nextjs.liara.run",
-    "https://api.mainreport.ir",
-    "https://mainreport.ir",
-    "http://87.107.111.36:3000",  # Next.js app on same server
-    "http://localhost:3000",      # Local development
-]
-
-# Allow all origins for development (you can restrict this later)
-CORS_ALLOW_ALL_ORIGINS = True
+# Fail closed unless deployment explicitly supplies its trusted hosts/origins.
+DEBUG = False
+# Never sign production JWTs with the repository's development key.
+SECRET_KEY = env('SECRET_KEY')
+if len(SECRET_KEY) < 50 or SECRET_KEY.startswith('django-insecure-'):
+    from django.core.exceptions import ImproperlyConfigured
+    raise ImproperlyConfigured('Set a strong, private production SECRET_KEY (at least 50 characters).')
+ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['api.mainreport.ir', 'medicdashboard-django.liara.run'])
+CORS_ALLOWED_ORIGINS = env.list('CORS_ALLOWED_ORIGINS', default=['https://mainreport.ir', 'https://medicdashboard-nextjs.liara.run'])
+CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=CORS_ALLOWED_ORIGINS)
+CORS_ALLOW_ALL_ORIGINS = False
 
 STATIC_URL = 'static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')

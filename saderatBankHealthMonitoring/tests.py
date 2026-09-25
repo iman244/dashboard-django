@@ -55,16 +55,9 @@ class MonitoringTypeApiTests(APITestCase):
         response = self.client.get(reverse('monitoring-types-list'))
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_member_reads_types(self):
+    def test_member_cannot_read_types(self):
         self.client.force_authenticate(self.member)
-        response = self.client.get(reverse('monitoring-types-list'))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            response.data[0],
-            {'id': self.step_1.id, 'slug': 'step_1',
-             'name_en': 'Step 1', 'name_fa': 'مرحله ۱',
-             'field_schema': {}},
-        )
+        self.assertEqual(self.client.get(reverse('monitoring-types-list')).status_code, 403)
 
     def test_member_cannot_write(self):
         self.client.force_authenticate(self.member)
@@ -135,7 +128,7 @@ class MonitoringWireFormatTests(APITestCase):
     def setUpTestData(cls):
         User = get_user_model()
         cls.member = User.objects.create_user(
-            'member', 'member@example.com', 'pw')
+            'member', 'member@example.com', 'pw', is_staff=True)
         cls.step_1 = MonitoringType.objects.get(slug='step_1')
         cls.step_2 = MonitoringType.objects.get(slug='step_2')
         cls.monitoring = SaderatBankHealthMonitoring.objects.create(
@@ -517,7 +510,7 @@ class PatientEntryModelTests(APITestCase):
         }
         self.step_1.save()
         User = get_user_model()
-        user = User.objects.create_user('op', 'op@example.com', 'pw')
+        user = User.objects.create_user('op', 'op@example.com', 'pw', is_staff=True)
         self.client.force_authenticate(user)
         response = self.client.post(
             reverse('monitorings-upload-excel'),
@@ -979,13 +972,7 @@ class PatientEntryValuesApiTests(APITestCase):
 
 
 class PatientRecordsApiTests(APITestCase):
-    """One patient's records across every monitoring, for display.
-
-    Readable without signing in, because the patient portal has no sign-in
-    of its own. That makes the national ID the only key, so the endpoint must
-    never answer without one, and anonymous callers are rate-limited so it
-    cannot be walked through ID by ID.
-    """
+    """Staff record lookup retains its response format and normalization."""
 
     @classmethod
     def setUpTestData(cls):
@@ -1013,9 +1000,10 @@ class PatientRecordsApiTests(APITestCase):
         PatientEntry.objects.create(
             monitoring=cls.lab, national_id='0099999999', values={'bp': '80'})
         User = get_user_model()
-        cls.user = User.objects.create_user('viewer', 'v@example.com', 'pw')
+        cls.user = User.objects.create_user('viewer', 'v@example.com', 'pw', is_staff=True)
 
     def setUp(self):
+        self.client.force_authenticate(self.user)
         # Throttle counts live in the cache; a previous test's requests must
         # not count against this one.
         from django.core.cache import cache
@@ -1049,8 +1037,9 @@ class PatientRecordsApiTests(APITestCase):
         self.assertEqual(record['files'][0]['url'],
                          'https://example.invalid/read')
 
-    def test_is_readable_without_signing_in(self):
-        self.assertEqual(self.fetch().status_code, status.HTTP_200_OK)
+    def test_anonymous_is_denied(self):
+        self.client.force_authenticate(None)
+        self.assertEqual(self.fetch().status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_refuses_to_answer_without_a_national_id(self):
         self.assertEqual(self.fetch(None).status_code,
@@ -1072,11 +1061,6 @@ class PatientRecordsApiTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data, [])
 
-    def test_anonymous_callers_are_rate_limited(self):
-        codes = [self.fetch().status_code for _ in range(31)]
-        self.assertEqual(codes[:30], [status.HTTP_200_OK] * 30)
-        self.assertEqual(codes[30], status.HTTP_429_TOO_MANY_REQUESTS)
-
     def test_signed_in_users_get_a_higher_limit(self):
         # Staff pages look patients up one page view at a time, so 120 a
         # minute never bites them -- but a signed-in account still cannot
@@ -1088,7 +1072,7 @@ class PatientRecordsApiTests(APITestCase):
 
 
 class PatientEntryStaffOnlyWritesTests(APITestCase):
-    """Anyone signed in may read records; only staff may change them."""
+    """Nonstaff accounts cannot read or change general records."""
 
     @classmethod
     def setUpTestData(cls):
@@ -1110,13 +1094,13 @@ class PatientEntryStaffOnlyWritesTests(APITestCase):
     def setUp(self):
         self.client.force_authenticate(self.member)
 
-    def test_member_can_list_and_read(self):
+    def test_member_cannot_list_or_read(self):
         listed = self.client.get(reverse('patient-entries-list'),
                                  {'monitoring': self.monitoring.id})
-        self.assertEqual(listed.status_code, status.HTTP_200_OK)
+        self.assertEqual(listed.status_code, status.HTTP_403_FORBIDDEN)
         one = self.client.get(
             reverse('patient-entries-detail', args=[self.entry.id]))
-        self.assertEqual(one.status_code, status.HTTP_200_OK)
+        self.assertEqual(one.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_member_cannot_create(self):
         response = self.client.post(reverse('patient-entries-list'), {
