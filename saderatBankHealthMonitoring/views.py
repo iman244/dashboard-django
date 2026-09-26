@@ -17,8 +17,8 @@ from .serializers import (
     PresignRequestSerializer,
     SaderatBankHealthMonitoringListSerializer,
 )
-from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.throttling import UserRateThrottle
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -32,22 +32,13 @@ from drf_spectacular.utils import (
 from rest_framework import serializers as drf_serializers
 
 
-class IsStaffOrReadOnly(permissions.BasePermission):
-    """Any signed-in user may read; only staff may write.
-
-    Used for monitoring types, which every report references, and for patient
-    records and their uploads. `is_staff` is already on the user payload the
-    dashboard receives, so the client can gate the same actions in its UI.
-    """
-
-    message = 'Only staff users may make changes.'
+class IsClinicalStaff(permissions.BasePermission):
+    """Patient credentials never grant access to general clinical endpoints."""
 
     def has_permission(self, request, view):
-        if not (request.user and request.user.is_authenticated):
-            return False
-        if request.method in permissions.SAFE_METHODS:
-            return True
-        return bool(request.user.is_staff)
+        return bool(request.user and request.user.is_authenticated
+                    and request.user.is_staff
+                    and not hasattr(request.user, 'patient_identity'))
 
 
 @extend_schema_view(
@@ -69,7 +60,7 @@ class MonitoringTypeViewSet(viewsets.ModelViewSet):
     queryset = MonitoringType.objects.all()
     serializer_class = MonitoringTypeSerializer
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsStaffOrReadOnly]
+    permission_classes = [IsClinicalStaff]
 
     def destroy(self, request, *args, **kwargs):
         # The foreign key is PROTECT, so Django refuses to collect a type that
@@ -99,7 +90,7 @@ class MonitoringTypeViewSet(viewsets.ModelViewSet):
 class SaderatBankHealthMonitoringViewSet(viewsets.ModelViewSet):
     queryset = SaderatBankHealthMonitoring.objects.all()
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsClinicalStaff]
 
     def get_serializer_class(self):
         if self.action == 'retrieve':
@@ -154,9 +145,8 @@ class PatientEntryViewSet(viewsets.ModelViewSet):
     queryset = PatientEntry.objects.prefetch_related('files')
     serializer_class = PatientEntrySerializer
     authentication_classes = [JWTAuthentication]
-    # Reading is open to every signed-in user; adding, editing, deleting and
-    # asking for an upload URL (presign is a POST) are staff-only.
-    permission_classes = [IsStaffOrReadOnly]
+    # All general entry operations require a staff account.
+    permission_classes = [IsClinicalStaff]
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -251,20 +241,6 @@ class PatientEntryViewSet(viewsets.ModelViewSet):
         })
 
 
-class PatientRecordsAnonThrottle(AnonRateThrottle):
-    """Caps anonymous reads per IP; signed-in users are not counted at all.
-
-    The rate lives here rather than in settings because it is part of what
-    makes this endpoint safe to leave open, not a tunable. Counts are per
-    process (the default local-memory cache), so the effective ceiling is
-    this times the number of gunicorn workers -- still far too slow to walk
-    the national ID space.
-    """
-
-    scope = 'patient_records'
-    rate = '30/min'
-
-
 class PatientRecordsUserThrottle(UserRateThrottle):
     """A looser cap for signed-in users, counted per account.
 
@@ -284,22 +260,18 @@ class PatientRecordsUserThrottle(UserRateThrottle):
     responses={
         200: PatientRecordSerializer(many=True),
         400: OpenApiResponse(description='Missing or malformed national_id.'),
-        429: OpenApiResponse(description='Too many anonymous requests.'),
+        401: OpenApiResponse(description='Authentication required.'),
+        403: OpenApiResponse(description='Staff access required.'),
+        429: OpenApiResponse(description='Too many requests.'),
     },
 )
 class PatientRecordsView(generics.ListAPIView):
-    """Everything recorded for one patient, for display.
-
-    Open to anonymous callers because the patient portal has no sign-in of
-    its own (the upstream EHR it fronts takes no credentials either). The
-    national ID is therefore the only key: this never answers without a
-    well-formed one, and anonymous callers are throttled.
-    """
+    """Staff-only lookup across monitorings for a supplied national ID."""
 
     serializer_class = PatientRecordSerializer
     authentication_classes = [JWTAuthentication]
-    permission_classes = [AllowAny]
-    throttle_classes = [PatientRecordsAnonThrottle, PatientRecordsUserThrottle]
+    permission_classes = [IsClinicalStaff]
+    throttle_classes = [PatientRecordsUserThrottle]
     pagination_class = None
 
     def list(self, request, *args, **kwargs):
@@ -315,3 +287,29 @@ class PatientRecordsView(generics.ListAPIView):
                    .prefetch_related('files')
                    .order_by('monitoring__name_en'))
         return Response(self.get_serializer(records, many=True).data)
+
+
+@extend_schema(
+    summary='The authenticated patient’s own monitoring records',
+    responses={200: PatientRecordSerializer(many=True),
+               400: OpenApiResponse(description='Patient selection is not accepted.'),
+               401: OpenApiResponse(description='Authentication required.'),
+               403: OpenApiResponse(description='A patient identity is required.')},
+)
+class OwnPatientRecordsView(generics.ListAPIView):
+    serializer_class = PatientRecordSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [PatientRecordsUserThrottle]
+    pagination_class = None
+
+    def get_queryset(self):
+        from rest_framework.exceptions import PermissionDenied, ValidationError
+        identity = getattr(self.request.user, 'patient_identity', None)
+        if identity is None or self.request.user.is_staff:
+            raise PermissionDenied('A patient identity is required.')
+        if self.request.query_params:
+            raise ValidationError('Patient selection is not accepted.')
+        return (PatientEntry.objects.filter(national_id=identity.national_id)
+                .select_related('monitoring').prefetch_related('files')
+                .order_by('monitoring__name_en'))

@@ -82,6 +82,32 @@ paths:
       responses:
         '200':
           description: No response body
+  /api/auth/patient/jwt/create/:
+    post:
+      operationId: auth_patient_jwt_create_create
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatientTokenRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatientTokenRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatientTokenRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatientToken'
+          description: ''
   /api/auth/users/:
     get:
       operationId: auth_users_list
@@ -116,7 +142,6 @@ paths:
         required: true
       security:
       - jwtAuth: []
-      - {}
       responses:
         '201':
           content:
@@ -1038,13 +1063,7 @@ paths:
   /api/saderat-bank-health-monitoring/patient-records/:
     get:
       operationId: saderat_bank_health_monitoring_patient_records_list
-      description: |-
-        Everything recorded for one patient, for display.
-
-        Open to anonymous callers because the patient portal has no sign-in of
-        its own (the upstream EHR it fronts takes no credentials either). The
-        national ID is therefore the only key: this never answers without a
-        well-formed one, and anonymous callers are throttled.
+      description: Staff-only lookup across monitorings for a supplied national ID.
       summary: A patient's records across every monitoring
       parameters:
       - in: query
@@ -1057,7 +1076,6 @@ paths:
       - saderat-bank-health-monitoring
       security:
       - jwtAuth: []
-      - {}
       responses:
         '200':
           content:
@@ -1069,8 +1087,35 @@ paths:
           description: ''
         '400':
           description: Missing or malformed national_id.
+        '401':
+          description: Authentication required.
+        '403':
+          description: Staff access required.
         '429':
-          description: Too many anonymous requests.
+          description: Too many requests.
+  /api/saderat-bank-health-monitoring/patient-records/me/:
+    get:
+      operationId: saderat_bank_health_monitoring_patient_records_me_list
+      summary: The authenticated patient’s own monitoring records
+      tags:
+      - saderat-bank-health-monitoring
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PatientRecord'
+          description: ''
+        '400':
+          description: Patient selection is not accepted.
+        '401':
+          description: Authentication required.
+        '403':
+          description: A patient identity is required.
 components:
   schemas:
     Activation:
@@ -1370,6 +1415,33 @@ components:
       - national_id
       - updated_at
       - values
+    PatientToken:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+          readOnly: true
+      required:
+      - access
+      - refresh
+    PatientTokenRequest:
+      type: object
+      properties:
+        national_id:
+          type: string
+          writeOnly: true
+          minLength: 1
+          maxLength: 32
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - national_id
+      - password
     PresignRequestRequest:
       type: object
       description: What the browser must state before Django will sign anything.
