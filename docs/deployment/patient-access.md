@@ -16,6 +16,8 @@ General monitoring types, entries (including upload signing), Bank reports and a
 
 Production requires a private `SECRET_KEY` of at least 50 characters; the development key is rejected. Set `ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS`, and `CSRF_TRUSTED_ORIGINS` to explicit comma-separated values. Defaults permit only the known production domains, not localhost or arbitrary origins. Production DEBUG is disabled. Use HTTPS at ingress and a private S3 bucket; returned file URLs are temporary bearer links governed by the existing S3 TTL.
 
+Docker's build-time `collectstatic` generates a disposable key in memory for that command. It is never written to a file or Docker `ENV`; supply the real private key separately at runtime.
+
 The upstream EHR, laboratory and X-ray service remains outside this authorization boundary. Patient clients must not call it directly. Its owner must restrict network access to an authenticated backend proxy before those patient features return.
 
-Validation in this change: the full Django suite (137 tests), Django system check, migration drift check, and validated OpenAPI export passed with SQLite and the existing sibling virtualenv. That environment reports Django 6.1.1; requirements pin 5.2.7 and were not changed. Repeat migration and integration checks against the pinned deployment environment/PostgreSQL before deployment.
+Validation in this change: the Docker image built successfully with the pinned Django 5.2.7 dependencies and collected 163 static files. Inside that image, the full Django suite (137 tests), Django system check, migration drift check, and validated OpenAPI export passed with SQLite; a runtime environment check confirmed that no build-time `SECRET_KEY` persisted. Those checks also passed in the existing sibling virtualenv (Django 6.1.1). Repeat migration and integration checks against PostgreSQL before deployment.
