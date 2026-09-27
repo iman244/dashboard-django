@@ -9,7 +9,11 @@ from .models import (
     PatientEntryFile,
     SaderatBankHealthMonitoring,
 )
-from .national_id import normalize_national_id
+from .national_id import (
+    EXCEL_NATIONAL_ID_COLUMNS,
+    canonical_national_id,
+    normalize_national_id,
+)
 from .s3 import S3Unavailable, head_object, presign_get
 from drf_spectacular.utils import extend_schema_field
 
@@ -102,6 +106,12 @@ class SaderatBankHealthMonitoringUploadExcelSerializer(
 
             df = df.astype(object).where(pd.notnull(df), None)
             json_data = df.to_dict(orient="records")
+            # A national id typed into a number cell lost its leading zeros;
+            # store every one as ten-digit text so it can be looked up.
+            for row in json_data:
+                for column in EXCEL_NATIONAL_ID_COLUMNS:
+                    if column in row:
+                        row[column] = canonical_national_id(row[column])
 
         except Exception as e:
             raise serializers.ValidationError(
@@ -351,3 +361,14 @@ class PatientRecordSerializer(serializers.ModelSerializer):
         fields = ['id', 'monitoring', 'national_id', 'values', 'files',
                   'updated_at']
         read_only_fields = fields
+
+
+class PersonReportSerializer(serializers.ModelSerializer):
+    """One Excel upload that mentions a person, without its rows."""
+
+    type = serializers.SlugRelatedField(slug_field='slug', read_only=True)
+    match_count = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = SaderatBankHealthMonitoring
+        fields = ['id', 'name', 'type', 'created_at', 'match_count']

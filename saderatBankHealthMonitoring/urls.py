@@ -3,6 +3,7 @@ from .views import (
     MonitoringTypeViewSet,
     PatientEntryViewSet,
     PatientRecordsView,
+    PersonReportsView,
     OwnPatientRecordsView,
     SaderatBankHealthMonitoringViewSet,
 )
@@ -17,5 +18,7 @@ urlpatterns = [
     path('patient-records/me/', OwnPatientRecordsView.as_view(), name='patient-records-me'),
     path('patient-records/', PatientRecordsView.as_view(),
          name='patient-records'),
+    path('person-reports/', PersonReportsView.as_view(),
+         name='person-reports'),
     path('', include(router.urls)),
 ]

@@ -10,8 +10,14 @@ from .serializers import (
     SaderatBankHealthMonitoringRetrieveSerializer,
     SaderatBankHealthMonitoringUploadExcelSerializer,
 )
-from .national_id import normalize_national_id
+from .national_id import (
+    EXCEL_NATIONAL_ID_COLUMNS,
+    canonical_national_id,
+    normalize_national_id,
+)
+from django.db.models import Q
 from .serializers import (
+    PersonReportSerializer,
     PatientEntrySerializer,
     PatientRecordSerializer,
     PresignRequestSerializer,
@@ -287,6 +293,62 @@ class PatientRecordsView(generics.ListAPIView):
                    .prefetch_related('files')
                    .order_by('monitoring__name_en'))
         return Response(self.get_serializer(records, many=True).data)
+
+
+@extend_schema(
+    summary='Excel uploads that mention a national ID',
+    parameters=[OpenApiParameter(
+        'national_id', str, required=True,
+        description='Ten digits; Persian and Arabic-Indic digits accepted.')],
+    responses={
+        200: PersonReportSerializer(many=True),
+        400: OpenApiResponse(description='Missing or malformed national_id.'),
+        401: OpenApiResponse(description='Authentication required.'),
+        403: OpenApiResponse(description='Staff access required.'),
+        429: OpenApiResponse(description='Too many requests.'),
+    },
+)
+class PersonReportsView(generics.ListAPIView):
+    """Staff-only: which Excel uploads contain rows for one person.
+
+    The rows live in each upload's `json` blob, so Postgres filters the
+    candidates with jsonb containment and the rows are counted here. Uploads
+    made before ids were stored as text hold them as numbers without their
+    leading zeros, so those spellings are searched too.
+    """
+
+    serializer_class = PersonReportSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsClinicalStaff]
+    throttle_classes = [PatientRecordsUserThrottle]
+    pagination_class = None
+
+    def list(self, request, *args, **kwargs):
+        national_id = canonical_national_id(normalize_national_id(
+            request.query_params.get('national_id', '')))
+        if not (isinstance(national_id, str) and len(national_id) == 10
+                and national_id.isdigit()):
+            return Response(
+                {'national_id': ['A ten-digit national ID is required.']},
+                status=status.HTTP_400_BAD_REQUEST)
+
+        spellings = {national_id, national_id.lstrip('0'), int(national_id)}
+        query = Q()
+        for column in EXCEL_NATIONAL_ID_COLUMNS:
+            for spelling in spellings:
+                query |= Q(json__contains=[{column: spelling}])
+
+        uploads = []
+        for upload in (SaderatBankHealthMonitoring.objects.filter(query)
+                       .select_related('type').order_by('-created_at', '-id')):
+            upload.match_count = sum(
+                1 for row in upload.json or []
+                if isinstance(row, dict) and any(
+                    canonical_national_id(row.get(column)) == national_id
+                    for column in EXCEL_NATIONAL_ID_COLUMNS))
+            if upload.match_count:
+                uploads.append(upload)
+        return Response(self.get_serializer(uploads, many=True).data)
 
 
 @extend_schema(

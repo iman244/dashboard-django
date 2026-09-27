@@ -1116,6 +1116,45 @@ paths:
           description: Authentication required.
         '403':
           description: A patient identity is required.
+  /api/saderat-bank-health-monitoring/person-reports/:
+    get:
+      operationId: saderat_bank_health_monitoring_person_reports_list
+      description: |-
+        Staff-only: which Excel uploads contain rows for one person.
+
+        The rows live in each upload's `json` blob, so Postgres filters the
+        candidates with jsonb containment and the rows are counted here. Uploads
+        made before ids were stored as text hold them as numbers without their
+        leading zeros, so those spellings are searched too.
+      summary: Excel uploads that mention a national ID
+      parameters:
+      - in: query
+        name: national_id
+        schema:
+          type: string
+        description: Ten digits; Persian and Arabic-Indic digits accepted.
+        required: true
+      tags:
+      - saderat-bank-health-monitoring
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PersonReport'
+          description: ''
+        '400':
+          description: Missing or malformed national_id.
+        '401':
+          description: Authentication required.
+        '403':
+          description: Staff access required.
+        '429':
+          description: Too many requests.
 components:
   schemas:
     Activation:
@@ -1442,6 +1481,32 @@ components:
       required:
       - national_id
       - password
+    PersonReport:
+      type: object
+      description: One Excel upload that mentions a person, without its rows.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 255
+        type:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        match_count:
+          type: integer
+          readOnly: true
+      required:
+      - created_at
+      - id
+      - match_count
+      - name
+      - type
     PresignRequestRequest:
       type: object
       description: What the browser must state before Django will sign anything.
