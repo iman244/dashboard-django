@@ -77,6 +77,14 @@ class UploadChecksTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('no_id_column', codes(response.data['issues']))
 
+    def test_a_spouse_id_column_does_not_link_rows(self):
+        # Person reports search only the three known columns, so any other
+        # «کد ملی ...» column would open someone else's (or nobody's) record.
+        MonitoringType.objects.create(slug='bp', name_en='BP', name_fa='فشار')
+        response = self.upload('bp', excel_upload([{'کد ملی همسر': '0012345678'}]))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('no_id_column', codes(response.data['issues']))
+
     def test_clean_sheet_has_no_id_warnings(self):
         response = self.upload('step_2', excel_upload([STEP_2_ROW]))
         self.assertEqual(response.status_code, 200)

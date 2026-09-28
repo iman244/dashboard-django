@@ -16,10 +16,8 @@ def id_column_for(slug, columns):
     layout = LAYOUTS.get(slug)
     if layout:
         return layout['id_column'] if layout['id_column'] in columns else None
-    present = [c for c in EXCEL_NATIONAL_ID_COLUMNS if c in columns]
-    if present:
-        return present[0]
-    return next((c for c in columns if 'کد ملی' in str(c)), None)
+    # Only the known columns: person reports search nothing else.
+    return next((c for c in EXCEL_NATIONAL_ID_COLUMNS if c in columns), None)
 
 
 def looks_like(slug, columns):
