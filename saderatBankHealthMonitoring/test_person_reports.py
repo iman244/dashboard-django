@@ -84,12 +84,12 @@ class PersonReportsApiTests(APITestCase):
         self.client.force_authenticate(self.staff)
         self.assertEqual(self.get('12').status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_staff_only(self):
+    def test_console_users_read_patients_do_not(self):
         self.assertEqual(self.get().status_code, status.HTTP_401_UNAUTHORIZED)
-        for user in (self.viewer, self.patient):
-            with self.subTest(user=user.username):
-                self.client.force_authenticate(user)
-                self.assertEqual(self.get().status_code, status.HTTP_403_FORBIDDEN)
+        self.client.force_authenticate(self.viewer)
+        self.assertEqual(self.get().status_code, status.HTTP_200_OK)
+        self.client.force_authenticate(self.patient)
+        self.assertEqual(self.get().status_code, status.HTTP_403_FORBIDDEN)
 
 
 class UploadKeepsNationalIdZerosTests(APITestCase):

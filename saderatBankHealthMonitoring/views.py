@@ -47,6 +47,24 @@ class IsClinicalStaff(permissions.BasePermission):
                     and not hasattr(request.user, 'patient_identity'))
 
 
+class IsConsoleReader(permissions.BasePermission):
+    """Any signed-in console user reads; only clinical staff write.
+
+    Patient accounts are refused outright: their only door is
+    patient-records/me/, which has its own permission.
+    """
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not (user and user.is_authenticated):
+            return False
+        if hasattr(user, 'patient_identity'):
+            return False
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        return bool(user.is_staff)
+
+
 @extend_schema_view(
     list=extend_schema(summary='List monitoring types'),
     retrieve=extend_schema(summary='Retrieve a monitoring type'),
@@ -66,7 +84,7 @@ class MonitoringTypeViewSet(viewsets.ModelViewSet):
     queryset = MonitoringType.objects.all()
     serializer_class = MonitoringTypeSerializer
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsClinicalStaff]
+    permission_classes = [IsConsoleReader]
 
     def destroy(self, request, *args, **kwargs):
         # The foreign key is PROTECT, so Django refuses to collect a type that
@@ -96,7 +114,7 @@ class MonitoringTypeViewSet(viewsets.ModelViewSet):
 class SaderatBankHealthMonitoringViewSet(viewsets.ModelViewSet):
     queryset = SaderatBankHealthMonitoring.objects.all()
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsClinicalStaff]
+    permission_classes = [IsConsoleReader]
 
     def get_serializer_class(self):
         if self.action == 'retrieve':
@@ -152,7 +170,7 @@ class PatientEntryViewSet(viewsets.ModelViewSet):
     serializer_class = PatientEntrySerializer
     authentication_classes = [JWTAuthentication]
     # All general entry operations require a staff account.
-    permission_classes = [IsClinicalStaff]
+    permission_classes = [IsConsoleReader]
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -276,7 +294,7 @@ class PatientRecordsView(generics.ListAPIView):
 
     serializer_class = PatientRecordSerializer
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsClinicalStaff]
+    permission_classes = [IsConsoleReader]
     throttle_classes = [PatientRecordsUserThrottle]
     pagination_class = None
 
@@ -319,7 +337,7 @@ class PersonReportsView(generics.ListAPIView):
 
     serializer_class = PersonReportSerializer
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsClinicalStaff]
+    permission_classes = [IsConsoleReader]
     throttle_classes = [PatientRecordsUserThrottle]
     pagination_class = None
 

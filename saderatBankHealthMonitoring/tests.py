@@ -55,9 +55,9 @@ class MonitoringTypeApiTests(APITestCase):
         response = self.client.get(reverse('monitoring-types-list'))
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_member_cannot_read_types(self):
+    def test_member_reads_types(self):
         self.client.force_authenticate(self.member)
-        self.assertEqual(self.client.get(reverse('monitoring-types-list')).status_code, 403)
+        self.assertEqual(self.client.get(reverse('monitoring-types-list')).status_code, 200)
 
     def test_member_cannot_write(self):
         self.client.force_authenticate(self.member)
@@ -1094,13 +1094,13 @@ class PatientEntryStaffOnlyWritesTests(APITestCase):
     def setUp(self):
         self.client.force_authenticate(self.member)
 
-    def test_member_cannot_list_or_read(self):
+    def test_member_can_list_and_read(self):
         listed = self.client.get(reverse('patient-entries-list'),
                                  {'monitoring': self.monitoring.id})
-        self.assertEqual(listed.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(listed.status_code, status.HTTP_200_OK)
         one = self.client.get(
             reverse('patient-entries-detail', args=[self.entry.id]))
-        self.assertEqual(one.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(one.status_code, status.HTTP_200_OK)
 
     def test_member_cannot_create(self):
         response = self.client.post(reverse('patient-entries-list'), {

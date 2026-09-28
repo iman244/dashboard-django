@@ -7,12 +7,12 @@ class PatientAccessBoundaryTests(APITestCase):
         response = self.client.get('/api/saderat-bank-health-monitoring/patient-records/', {'national_id': '0012345678'})
         self.assertEqual(response.status_code, 401)
 
-    def test_unprofiled_account_cannot_read_general_endpoints(self):
+    def test_unprofiled_account_reads_general_endpoints(self):
         user = get_user_model().objects.create_user('outsider', password='pw')
         self.client.force_authenticate(user)
         for endpoint in ('patient-records/?national_id=0012345678', 'monitoring-types/', 'patient-entries/', 'monitorings/'):
             with self.subTest(endpoint=endpoint):
-                self.assertEqual(self.client.get('/api/saderat-bank-health-monitoring/' + endpoint).status_code, 403)
+                self.assertEqual(self.client.get('/api/saderat-bank-health-monitoring/' + endpoint).status_code, 200)
 
     def test_public_enrollment_disabled(self):
         response = self.client.post('/api/auth/users/', {'username': 'new-patient', 'password': 'secure-test-password-2345'})
