@@ -139,7 +139,12 @@ class SaderatBankHealthMonitoringViewSet(viewsets.ModelViewSet):
         responses={
             200: inline_serializer(
                 name='UploadExcelResponse',
-                fields={'message': drf_serializers.CharField()},
+                fields={
+                    'message': drf_serializers.CharField(),
+                    'id': drf_serializers.IntegerField(),
+                    'issues': drf_serializers.ListField(
+                        child=drf_serializers.DictField()),
+                },
             ),
         },
     )
@@ -148,8 +153,9 @@ class SaderatBankHealthMonitoringViewSet(viewsets.ModelViewSet):
         serializer = SaderatBankHealthMonitoringUploadExcelSerializer(
             data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response({'message': 'Excel uploaded successfully'})
+        instance = serializer.save()
+        return Response({'message': 'Excel uploaded successfully', 'id': instance.id,
+                         'issues': getattr(instance, 'upload_issues', [])})
 
 
 @extend_schema_view(

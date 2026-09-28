@@ -15,6 +15,7 @@ from .national_id import (
     normalize_national_id,
 )
 from .s3 import S3Unavailable, head_object, presign_get
+from .upload_checks import check_sheet
 from drf_spectacular.utils import extend_schema_field
 
 from .schema import (
@@ -117,32 +118,27 @@ class SaderatBankHealthMonitoringUploadExcelSerializer(
         file = validated_data['file']
 
         try:
-            string_columns = {
-                'personel.کد ملی': str,
-                'تجمیع نتایج.کد ملی': str
-            }
-
-            df = pd.read_excel(file, dtype=string_columns)
-
-            df = df.astype(object).where(pd.notnull(df), None)
-            json_data = df.to_dict(orient="records")
-            # A national id typed into a number cell lost its leading zeros;
-            # store every one as ten-digit text so it can be looked up.
-            for row in json_data:
-                for column in EXCEL_NATIONAL_ID_COLUMNS:
-                    if column in row:
-                        row[column] = canonical_national_id(row[column])
-
+            # Every cell as text: a component parses a number only where it
+            # needs one. Empty cells stay NaN here and become None below.
+            df = pd.read_excel(file, dtype=str)
         except Exception as e:
-            raise serializers.ValidationError(
-                f'Error reading Excel file: {str(e)}')
+            raise serializers.ValidationError({
+                'file': ['The file could not be read.'],
+                'issues': [{'level': 'error', 'code': 'unreadable', 'detail': str(e)}],
+            })
+
+        df = df.astype(object).where(pd.notnull(df), None)
+        json_data = df.to_dict(orient="records")
+        for row in json_data:
+            for column in EXCEL_NATIONAL_ID_COLUMNS:
+                if column in row:
+                    row[column] = canonical_national_id(row[column])
+
+        warnings = check_sheet(type.slug, json_data, list(df.columns))
 
         instance = SaderatBankHealthMonitoring.objects.create(
-            name=name,
-            type=type,
-            json=json_data
-        )
-
+            name=name, type=type, json=json_data)
+        instance.upload_issues = warnings
         return instance
 
 
