@@ -40,16 +40,30 @@ def full_national_id(value):
     return national_id
 
 
-class MonitoringTypeSerializer(serializers.ModelSerializer):
+class MonitoringTypeFieldsSerializer(serializers.ModelSerializer):
+    """A monitoring type's own fields, with no campaign counts.
+
+    Used wherever a type is nested inside another record (e.g.
+    PatientRecordSerializer) rather than listed by MonitoringTypeViewSet:
+    those instances are never annotated with upload_count/record_count, and
+    the fields' own defaults would otherwise render plausible-looking zeros
+    that are not actually counts of anything.
+    """
+
+    class Meta:
+        model = MonitoringType
+        fields = ['id', 'slug', 'name_en', 'name_fa', 'field_schema']
+
+
+class MonitoringTypeSerializer(MonitoringTypeFieldsSerializer):
     # Annotated by MonitoringTypeViewSet.get_queryset; absent on a freshly
     # created instance, hence the defaults.
     upload_count = serializers.IntegerField(read_only=True, default=0)
     record_count = serializers.IntegerField(read_only=True, default=0)
 
-    class Meta:
-        model = MonitoringType
-        fields = ['id', 'slug', 'name_en', 'name_fa', 'field_schema',
-                  'upload_count', 'record_count']
+    class Meta(MonitoringTypeFieldsSerializer.Meta):
+        fields = MonitoringTypeFieldsSerializer.Meta.fields + [
+            'upload_count', 'record_count']
 
 
 def monitoring_type_field():
@@ -359,7 +373,7 @@ class PatientRecordSerializer(serializers.ModelSerializer):
     the names and field_schema needed to label and order what it holds.
     """
 
-    monitoring = MonitoringTypeSerializer(read_only=True)
+    monitoring = MonitoringTypeFieldsSerializer(read_only=True)
     files = PatientEntryFileSerializer(many=True, read_only=True)
 
     class Meta:

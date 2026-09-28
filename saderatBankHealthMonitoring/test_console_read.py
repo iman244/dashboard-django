@@ -87,3 +87,14 @@ class CampaignCountTests(APITestCase):
         self.assertEqual(rows['step_1']['upload_count'], 0)
         one = self.client.get(API + f'monitoring-types/{step_2.id}/').data
         self.assertEqual(one['upload_count'], 2)
+
+    def test_nested_monitoring_type_omits_campaign_counts(self):
+        step_2 = MonitoringType.objects.get(slug='step_2')
+        PatientEntry.objects.create(
+            monitoring=step_2, national_id='0012345678', values={})
+        viewer = get_user_model().objects.create_user('v3', password='pw')
+        self.client.force_authenticate(viewer)
+        records = self.client.get(
+            API + 'patient-records/?national_id=0012345678').data
+        self.assertNotIn('upload_count', records[0]['monitoring'])
+        self.assertNotIn('record_count', records[0]['monitoring'])
