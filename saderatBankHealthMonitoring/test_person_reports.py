@@ -113,6 +113,12 @@ class PersonReportsApiTests(APITestCase):
         response = self.client.get(reverse(URL), {'national_id': '0012345678', 'monitoring': 'x'})
         self.assertEqual(response.status_code, 400)
 
+    def test_rejects_a_superscript_monitoring(self):
+        # str.isdigit() accepts '²', which int() then refuses.
+        self.client.force_authenticate(self.staff)
+        response = self.client.get(reverse(URL), {'national_id': '0012345678', 'monitoring': '²'})
+        self.assertEqual(response.status_code, 400)
+
 
 class UploadKeepsNationalIdZerosTests(APITestCase):
     def test_numeric_national_id_cells_are_stored_as_ten_digit_text(self):

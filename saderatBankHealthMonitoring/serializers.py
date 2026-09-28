@@ -57,6 +57,8 @@ class MonitoringTypeFieldsSerializer(serializers.ModelSerializer):
 
 
 class MonitoringTypeSerializer(MonitoringTypeFieldsSerializer):
+    """A campaign, with its upload and record counts."""
+
     # Annotated by MonitoringTypeViewSet.get_queryset; absent on a freshly
     # created instance, hence the defaults.
     upload_count = serializers.IntegerField(read_only=True, default=0)

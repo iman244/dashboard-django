@@ -1212,14 +1212,7 @@ components:
       - slug
     MonitoringType:
       type: object
-      description: |-
-        A monitoring type's own fields, with no campaign counts.
-
-        Used wherever a type is nested inside another record (e.g.
-        PatientRecordSerializer) rather than listed by MonitoringTypeViewSet:
-        those instances are never annotated with upload_count/record_count, and
-        the fields' own defaults would otherwise render plausible-looking zeros
-        that are not actually counts of anything.
+      description: A campaign, with its upload and record counts.
       properties:
         id:
           type: integer
@@ -1282,14 +1275,7 @@ components:
       - slug
     MonitoringTypeRequest:
       type: object
-      description: |-
-        A monitoring type's own fields, with no campaign counts.
-
-        Used wherever a type is nested inside another record (e.g.
-        PatientRecordSerializer) rather than listed by MonitoringTypeViewSet:
-        those instances are never annotated with upload_count/record_count, and
-        the fields' own defaults would otherwise render plausible-looking zeros
-        that are not actually counts of anything.
+      description: A campaign, with its upload and record counts.
       properties:
         slug:
           type: string
@@ -1340,14 +1326,7 @@ components:
       - uid
     PatchedMonitoringTypeRequest:
       type: object
-      description: |-
-        A monitoring type's own fields, with no campaign counts.
-
-        Used wherever a type is nested inside another record (e.g.
-        PatientRecordSerializer) rather than listed by MonitoringTypeViewSet:
-        those instances are never annotated with upload_count/record_count, and
-        the fields' own defaults would otherwise render plausible-looking zeros
-        that are not actually counts of anything.
+      description: A campaign, with its upload and record counts.
       properties:
         slug:
           type: string

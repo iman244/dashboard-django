@@ -377,7 +377,7 @@ class PersonReportsView(generics.ListAPIView):
                 {'national_id': ['A ten-digit national ID is required.']},
                 status=status.HTTP_400_BAD_REQUEST)
         monitoring = request.query_params.get('monitoring')
-        if monitoring is not None and not monitoring.isdigit():
+        if monitoring is not None and not monitoring.isdecimal():
             return Response(
                 {'monitoring': ['A numeric monitoring id is required.']},
                 status=status.HTTP_400_BAD_REQUEST)
