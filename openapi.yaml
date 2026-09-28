@@ -1063,7 +1063,10 @@ paths:
   /api/saderat-bank-health-monitoring/patient-records/:
     get:
       operationId: saderat_bank_health_monitoring_patient_records_list
-      description: Staff-only lookup across monitorings for a supplied national ID.
+      description: |-
+        Lookup across monitorings for a supplied national ID.
+
+        Any signed-in console user reads; patient accounts get 403.
       summary: A patient's records across every monitoring
       parameters:
       - in: query
@@ -1090,7 +1093,7 @@ paths:
         '401':
           description: Authentication required.
         '403':
-          description: Staff access required.
+          description: Console access required; patient accounts are refused.
         '429':
           description: Too many requests.
   /api/saderat-bank-health-monitoring/patient-records/me/:
@@ -1120,7 +1123,9 @@ paths:
     get:
       operationId: saderat_bank_health_monitoring_person_reports_list
       description: |-
-        Staff-only: which Excel uploads contain rows for one person.
+        Which Excel uploads contain rows for one person.
+
+        Any signed-in console user reads; patient accounts get 403.
 
         The rows live in each upload's `json` blob, so Postgres filters the
         candidates with jsonb containment and the rows are counted here. Uploads
@@ -1128,6 +1133,11 @@ paths:
         leading zeros, so those spellings are searched too.
       summary: Excel uploads that mention a national ID
       parameters:
+      - in: query
+        name: monitoring
+        schema:
+          type: integer
+        description: Limit to one monitoring and include the rows.
       - in: query
         name: national_id
         schema:
@@ -1148,11 +1158,11 @@ paths:
                   $ref: '#/components/schemas/PersonReport'
           description: ''
         '400':
-          description: Missing or malformed national_id.
+          description: Missing or malformed national_id or monitoring.
         '401':
           description: Authentication required.
         '403':
-          description: Staff access required.
+          description: Console access required; patient accounts are refused.
         '429':
           description: Too many requests.
 components:
@@ -1179,8 +1189,77 @@ components:
       required:
       - token
       - uid
+    CampaignRef:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        slug:
+          type: string
+          maxLength: 16
+          pattern: ^[-a-zA-Z0-9_]+$
+        name_en:
+          type: string
+          maxLength: 64
+        name_fa:
+          type: string
+          maxLength: 64
+      required:
+      - id
+      - name_en
+      - name_fa
+      - slug
     MonitoringType:
       type: object
+      description: |-
+        A monitoring type's own fields, with no campaign counts.
+
+        Used wherever a type is nested inside another record (e.g.
+        PatientRecordSerializer) rather than listed by MonitoringTypeViewSet:
+        those instances are never annotated with upload_count/record_count, and
+        the fields' own defaults would otherwise render plausible-looking zeros
+        that are not actually counts of anything.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        slug:
+          type: string
+          maxLength: 16
+          pattern: ^[-a-zA-Z0-9_]+$
+        name_en:
+          type: string
+          maxLength: 64
+        name_fa:
+          type: string
+          maxLength: 64
+        field_schema: {}
+        upload_count:
+          type: integer
+          readOnly: true
+          default: 0
+        record_count:
+          type: integer
+          readOnly: true
+          default: 0
+      required:
+      - id
+      - name_en
+      - name_fa
+      - record_count
+      - slug
+      - upload_count
+    MonitoringTypeFields:
+      type: object
+      description: |-
+        A monitoring type's own fields, with no campaign counts.
+
+        Used wherever a type is nested inside another record (e.g.
+        PatientRecordSerializer) rather than listed by MonitoringTypeViewSet:
+        those instances are never annotated with upload_count/record_count, and
+        the fields' own defaults would otherwise render plausible-looking zeros
+        that are not actually counts of anything.
       properties:
         id:
           type: integer
@@ -1203,6 +1282,14 @@ components:
       - slug
     MonitoringTypeRequest:
       type: object
+      description: |-
+        A monitoring type's own fields, with no campaign counts.
+
+        Used wherever a type is nested inside another record (e.g.
+        PatientRecordSerializer) rather than listed by MonitoringTypeViewSet:
+        those instances are never annotated with upload_count/record_count, and
+        the fields' own defaults would otherwise render plausible-looking zeros
+        that are not actually counts of anything.
       properties:
         slug:
           type: string
@@ -1253,6 +1340,14 @@ components:
       - uid
     PatchedMonitoringTypeRequest:
       type: object
+      description: |-
+        A monitoring type's own fields, with no campaign counts.
+
+        Used wherever a type is nested inside another record (e.g.
+        PatientRecordSerializer) rather than listed by MonitoringTypeViewSet:
+        those instances are never annotated with upload_count/record_count, and
+        the fields' own defaults would otherwise render plausible-looking zeros
+        that are not actually counts of anything.
       properties:
         slug:
           type: string
@@ -1431,7 +1526,7 @@ components:
           readOnly: true
         monitoring:
           allOf:
-          - $ref: '#/components/schemas/MonitoringType'
+          - $ref: '#/components/schemas/MonitoringTypeFields'
           readOnly: true
         national_id:
           type: string
@@ -1483,7 +1578,8 @@ components:
       - password
     PersonReport:
       type: object
-      description: One Excel upload that mentions a person, without its rows.
+      description: One Excel upload that mentions a person; `rows` only when asked
+        for.
       properties:
         id:
           type: integer
@@ -1494,6 +1590,10 @@ components:
         type:
           type: string
           readOnly: true
+        monitoring:
+          allOf:
+          - $ref: '#/components/schemas/CampaignRef'
+          readOnly: true
         created_at:
           type: string
           format: date-time
@@ -1501,10 +1601,16 @@ components:
         match_count:
           type: integer
           readOnly: true
+        rows:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
       required:
       - created_at
       - id
       - match_count
+      - monitoring
       - name
       - type
     PresignRequestRequest:
@@ -1755,7 +1861,16 @@ components:
       properties:
         message:
           type: string
+        id:
+          type: integer
+        issues:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
       required:
+      - id
+      - issues
       - message
     User:
       type: object

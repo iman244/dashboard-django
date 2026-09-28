@@ -182,7 +182,8 @@ class PatientEntryViewSet(viewsets.ModelViewSet):
     queryset = PatientEntry.objects.prefetch_related('files')
     serializer_class = PatientEntrySerializer
     authentication_classes = [JWTAuthentication]
-    # All general entry operations require a staff account.
+    # Any signed-in console user reads; writes need staff; patient accounts
+    # get 403.
     permission_classes = [IsConsoleReader]
 
     def get_queryset(self):
@@ -298,12 +299,16 @@ class PatientRecordsUserThrottle(UserRateThrottle):
         200: PatientRecordSerializer(many=True),
         400: OpenApiResponse(description='Missing or malformed national_id.'),
         401: OpenApiResponse(description='Authentication required.'),
-        403: OpenApiResponse(description='Staff access required.'),
+        403: OpenApiResponse(
+            description='Console access required; patient accounts are refused.'),
         429: OpenApiResponse(description='Too many requests.'),
     },
 )
 class PatientRecordsView(generics.ListAPIView):
-    """Staff-only lookup across monitorings for a supplied national ID."""
+    """Lookup across monitorings for a supplied national ID.
+
+    Any signed-in console user reads; patient accounts get 403.
+    """
 
     serializer_class = PatientRecordSerializer
     authentication_classes = [JWTAuthentication]
@@ -328,19 +333,28 @@ class PatientRecordsView(generics.ListAPIView):
 
 @extend_schema(
     summary='Excel uploads that mention a national ID',
-    parameters=[OpenApiParameter(
-        'national_id', str, required=True,
-        description='Ten digits; Persian and Arabic-Indic digits accepted.')],
+    parameters=[
+        OpenApiParameter(
+            'national_id', str, required=True,
+            description='Ten digits; Persian and Arabic-Indic digits accepted.'),
+        OpenApiParameter(
+            'monitoring', int, required=False,
+            description='Limit to one monitoring and include the rows.'),
+    ],
     responses={
         200: PersonReportSerializer(many=True),
-        400: OpenApiResponse(description='Missing or malformed national_id.'),
+        400: OpenApiResponse(
+            description='Missing or malformed national_id or monitoring.'),
         401: OpenApiResponse(description='Authentication required.'),
-        403: OpenApiResponse(description='Staff access required.'),
+        403: OpenApiResponse(
+            description='Console access required; patient accounts are refused.'),
         429: OpenApiResponse(description='Too many requests.'),
     },
 )
 class PersonReportsView(generics.ListAPIView):
-    """Staff-only: which Excel uploads contain rows for one person.
+    """Which Excel uploads contain rows for one person.
+
+    Any signed-in console user reads; patient accounts get 403.
 
     The rows live in each upload's `json` blob, so Postgres filters the
     candidates with jsonb containment and the rows are counted here. Uploads
@@ -362,6 +376,11 @@ class PersonReportsView(generics.ListAPIView):
             return Response(
                 {'national_id': ['A ten-digit national ID is required.']},
                 status=status.HTTP_400_BAD_REQUEST)
+        monitoring = request.query_params.get('monitoring')
+        if monitoring is not None and not monitoring.isdigit():
+            return Response(
+                {'monitoring': ['A numeric monitoring id is required.']},
+                status=status.HTTP_400_BAD_REQUEST)
 
         spellings = {national_id, national_id.lstrip('0'), int(national_id)}
         query = Q()
@@ -369,15 +388,22 @@ class PersonReportsView(generics.ListAPIView):
             for spelling in spellings:
                 query |= Q(json__contains=[{column: spelling}])
 
+        candidates = SaderatBankHealthMonitoring.objects.filter(query)
+        if monitoring:
+            candidates = candidates.filter(type_id=int(monitoring))
         uploads = []
-        for upload in (SaderatBankHealthMonitoring.objects.filter(query)
-                       .select_related('type').order_by('-created_at', '-id')):
-            upload.match_count = sum(
-                1 for row in upload.json or []
-                if isinstance(row, dict) and any(
-                    canonical_national_id(row.get(column)) == national_id
-                    for column in EXCEL_NATIONAL_ID_COLUMNS))
-            if upload.match_count:
+        for upload in (candidates.select_related('type')
+                       .order_by('-created_at', '-id')):
+            matched = [row for row in upload.json or []
+                       if isinstance(row, dict) and any(
+                           canonical_national_id(row.get(column)) == national_id
+                           for column in EXCEL_NATIONAL_ID_COLUMNS)]
+            upload.match_count = len(matched)
+            # Only this person's rows, and only for one monitoring: the
+            # patient-in-campaign page never downloads a whole upload.
+            if monitoring:
+                upload.rows = matched
+            if matched:
                 uploads.append(upload)
         return Response(self.get_serializer(uploads, many=True).data)
 

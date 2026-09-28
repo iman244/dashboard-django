@@ -69,7 +69,7 @@ class PersonReportsApiTests(APITestCase):
         self.assertEqual(by_id[self.first.id]['type'], 'step_1')
         self.assertEqual(
             set(by_id[self.first.id]),
-            {'id', 'name', 'type', 'created_at', 'match_count'})
+            {'id', 'name', 'type', 'monitoring', 'created_at', 'match_count'})
 
     def test_newest_upload_first(self):
         self.client.force_authenticate(self.staff)
@@ -90,6 +90,28 @@ class PersonReportsApiTests(APITestCase):
         self.assertEqual(self.get().status_code, status.HTTP_200_OK)
         self.client.force_authenticate(self.patient)
         self.assertEqual(self.get().status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_items_name_their_campaign(self):
+        self.client.force_authenticate(self.staff)
+        item = next(r for r in self.get().data if r['id'] == self.first.id)
+        self.assertEqual(item['monitoring']['slug'], 'step_1')
+        self.assertEqual(set(item['monitoring']), {'id', 'slug', 'name_en', 'name_fa'})
+        self.assertNotIn('rows', item)
+
+    def test_one_campaign_with_the_persons_rows_only(self):
+        self.client.force_authenticate(self.staff)
+        step_2 = MonitoringType.objects.get(slug='step_2')
+        response = self.client.get(reverse(URL), {'national_id': '0012345678', 'monitoring': step_2.id})
+        self.assertEqual(response.status_code, 200)
+        by_id = {r['id']: r for r in response.data}
+        self.assertEqual(set(by_id), {self.duplicated.id, self.legacy.id})
+        self.assertEqual(len(by_id[self.duplicated.id]['rows']), 2)
+        self.assertEqual(by_id[self.legacy.id]['rows'], [{'کد ملی': 12345678}])
+
+    def test_rejects_a_non_numeric_monitoring(self):
+        self.client.force_authenticate(self.staff)
+        response = self.client.get(reverse(URL), {'national_id': '0012345678', 'monitoring': 'x'})
+        self.assertEqual(response.status_code, 400)
 
 
 class UploadKeepsNationalIdZerosTests(APITestCase):

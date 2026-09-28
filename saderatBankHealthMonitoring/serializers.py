@@ -379,12 +379,29 @@ class PatientRecordSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class CampaignRefSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MonitoringType
+        fields = ['id', 'slug', 'name_en', 'name_fa']
+
+
 class PersonReportSerializer(serializers.ModelSerializer):
-    """One Excel upload that mentions a person, without its rows."""
+    """One Excel upload that mentions a person; `rows` only when asked for."""
 
     type = serializers.SlugRelatedField(slug_field='slug', read_only=True)
+    monitoring = CampaignRefSerializer(source='type', read_only=True)
     match_count = serializers.IntegerField(read_only=True)
+    # Not read_only: drf-spectacular marks every read-only field required, and
+    # `rows` is absent unless the request names a monitoring. The view only
+    # lists, so nothing ever writes through this field.
+    rows = serializers.ListField(child=serializers.DictField(), required=False)
 
     class Meta:
         model = SaderatBankHealthMonitoring
-        fields = ['id', 'name', 'type', 'created_at', 'match_count']
+        fields = ['id', 'name', 'type', 'monitoring', 'created_at', 'match_count', 'rows']
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if not hasattr(instance, 'rows'):
+            data.pop('rows', None)
+        return data

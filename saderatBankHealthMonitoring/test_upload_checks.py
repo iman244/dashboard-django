@@ -1,7 +1,6 @@
 import io
 from datetime import datetime
 
-import pandas as pd
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from rest_framework.test import APITestCase
