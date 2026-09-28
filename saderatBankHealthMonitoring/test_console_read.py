@@ -71,3 +71,19 @@ class ConsoleReadAccessTests(APITestCase):
         for endpoint in self.reads():
             with self.subTest(endpoint=endpoint):
                 self.assertEqual(self.client.get(API + endpoint).status_code, 401)
+
+
+class CampaignCountTests(APITestCase):
+    def test_types_carry_upload_and_record_counts(self):
+        step_2 = MonitoringType.objects.get(slug='step_2')
+        SaderatBankHealthMonitoring.objects.create(name='A', type=step_2, json=[])
+        SaderatBankHealthMonitoring.objects.create(name='B', type=step_2, json=[])
+        PatientEntry.objects.create(monitoring=step_2, national_id='0012345678', values={})
+        viewer = get_user_model().objects.create_user('v2', password='pw')
+        self.client.force_authenticate(viewer)
+        rows = {r['slug']: r for r in self.client.get(API + 'monitoring-types/').data}
+        self.assertEqual(rows['step_2']['upload_count'], 2)
+        self.assertEqual(rows['step_2']['record_count'], 1)
+        self.assertEqual(rows['step_1']['upload_count'], 0)
+        one = self.client.get(API + f'monitoring-types/{step_2.id}/').data
+        self.assertEqual(one['upload_count'], 2)

@@ -41,9 +41,15 @@ def full_national_id(value):
 
 
 class MonitoringTypeSerializer(serializers.ModelSerializer):
+    # Annotated by MonitoringTypeViewSet.get_queryset; absent on a freshly
+    # created instance, hence the defaults.
+    upload_count = serializers.IntegerField(read_only=True, default=0)
+    record_count = serializers.IntegerField(read_only=True, default=0)
+
     class Meta:
         model = MonitoringType
-        fields = ['id', 'slug', 'name_en', 'name_fa', 'field_schema']
+        fields = ['id', 'slug', 'name_en', 'name_fa', 'field_schema',
+                  'upload_count', 'record_count']
 
 
 def monitoring_type_field():

@@ -1,6 +1,6 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import ProtectedError
+from django.db.models import Count, ProtectedError
 from rest_framework import generics, permissions, status, viewsets
 from .models import MonitoringType, PatientEntry, SaderatBankHealthMonitoring
 from .s3 import S3Unavailable, build_key, presign_put
@@ -85,6 +85,13 @@ class MonitoringTypeViewSet(viewsets.ModelViewSet):
     serializer_class = MonitoringTypeSerializer
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsConsoleReader]
+
+    def get_queryset(self):
+        # distinct=True: two joins in one query would otherwise multiply.
+        return MonitoringType.objects.annotate(
+            upload_count=Count('monitorings', distinct=True),
+            record_count=Count('entries', distinct=True),
+        ).order_by('id')
 
     def destroy(self, request, *args, **kwargs):
         # The foreign key is PROTECT, so Django refuses to collect a type that
