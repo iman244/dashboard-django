@@ -755,6 +755,14 @@ class PatientEntryApiTests(APITestCase):
             {'monitoring': self.monitoring.id, 'national_id': '۰۰۱۲۳۴۵۶۷۸'})
         self.assertEqual(len(response.data), 1)
 
+    def test_filter_refuses_a_non_numeric_monitoring(self):
+        for bad in ('abc', '1.5', '²'):
+            response = self.client.get(
+                reverse('patient-entries-list'), {'monitoring': bad})
+            self.assertEqual(response.status_code,
+                             status.HTTP_400_BAD_REQUEST, bad)
+            self.assertIn('monitoring', response.data)
+
     def test_patch_replaces_the_file_set(self):
         entry_id = self.create().data['id']
         response = self.client.patch(
@@ -895,6 +903,11 @@ class PatientEntryApiTests(APITestCase):
 
     def test_a_short_national_id_is_refused(self):
         response = self.create(national_id='123456789', files=[])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('national_id', response.data)
+
+    def test_a_superscript_national_id_is_refused(self):
+        response = self.create(national_id='⁰⁰¹²³⁴⁵⁶⁷⁸', files=[])
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('national_id', response.data)
 
@@ -1048,7 +1061,7 @@ class PatientRecordsApiTests(APITestCase):
                          status.HTTP_400_BAD_REQUEST)
 
     def test_refuses_anything_that_is_not_a_national_id(self):
-        for bad in ('123', '00123456789', '00123x5678'):
+        for bad in ('123', '00123456789', '00123x5678', '⁰⁰¹²³⁴⁵⁶⁷⁸'):
             self.assertEqual(self.fetch(bad).status_code,
                              status.HTTP_400_BAD_REQUEST, bad)
 

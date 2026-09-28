@@ -12,6 +12,7 @@ from .models import (
 from .national_id import (
     EXCEL_NATIONAL_ID_COLUMNS,
     canonical_national_id,
+    is_national_id,
     normalize_national_id,
 )
 from .s3 import S3Unavailable, head_object, presign_get
@@ -35,7 +36,7 @@ def full_national_id(value):
     records up by the full ten digits.
     """
     national_id = normalize_national_id(value)
-    if not (len(national_id) == 10 and national_id.isdigit()):
+    if not is_national_id(national_id):
         raise serializers.ValidationError(
             'A national ID is exactly ten digits.')
     return national_id

@@ -1,3 +1,5 @@
+import re
+
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Count, ProtectedError
@@ -13,6 +15,7 @@ from .serializers import (
 from .national_id import (
     EXCEL_NATIONAL_ID_COLUMNS,
     canonical_national_id,
+    is_national_id,
     normalize_national_id,
 )
 from django.db.models import Q
@@ -36,6 +39,13 @@ from drf_spectacular.utils import (
     inline_serializer,
 )
 from rest_framework import serializers as drf_serializers
+
+MONITORING_ID_REQUIRED = {'monitoring': ['A numeric monitoring id is required.']}
+
+
+def is_numeric_id(value):
+    """ASCII digits only: `int()` refuses '1.5', and a superscript passes isdigit()."""
+    return re.fullmatch(r'[0-9]+', value) is not None
 
 
 class IsClinicalStaff(permissions.BasePermission):
@@ -190,6 +200,8 @@ class PatientEntryViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         monitoring = self.request.query_params.get('monitoring')
         if monitoring:
+            if not is_numeric_id(monitoring):
+                raise drf_serializers.ValidationError(MONITORING_ID_REQUIRED)
             queryset = queryset.filter(monitoring_id=monitoring)
         national_id = self.request.query_params.get('national_id')
         if national_id:
@@ -319,7 +331,7 @@ class PatientRecordsView(generics.ListAPIView):
     def list(self, request, *args, **kwargs):
         national_id = normalize_national_id(
             request.query_params.get('national_id', ''))
-        if not (len(national_id) == 10 and national_id.isdigit()):
+        if not is_national_id(national_id):
             return Response(
                 {'national_id': ['A ten-digit national ID is required.']},
                 status=status.HTTP_400_BAD_REQUEST)
@@ -371,16 +383,14 @@ class PersonReportsView(generics.ListAPIView):
     def list(self, request, *args, **kwargs):
         national_id = canonical_national_id(normalize_national_id(
             request.query_params.get('national_id', '')))
-        if not (isinstance(national_id, str) and len(national_id) == 10
-                and national_id.isdigit()):
+        if not is_national_id(national_id):
             return Response(
                 {'national_id': ['A ten-digit national ID is required.']},
                 status=status.HTTP_400_BAD_REQUEST)
         monitoring = request.query_params.get('monitoring')
-        if monitoring is not None and not monitoring.isdecimal():
-            return Response(
-                {'monitoring': ['A numeric monitoring id is required.']},
-                status=status.HTTP_400_BAD_REQUEST)
+        if monitoring is not None and not is_numeric_id(monitoring):
+            return Response(MONITORING_ID_REQUIRED,
+                            status=status.HTTP_400_BAD_REQUEST)
 
         spellings = {national_id, national_id.lstrip('0'), int(national_id)}
         query = Q()

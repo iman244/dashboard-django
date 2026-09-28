@@ -25,6 +25,8 @@ class CanonicalNationalIdTests(TestCase):
         self.assertIsNone(canonical_national_id(None))
         self.assertEqual(canonical_national_id('abc'), 'abc')
         self.assertEqual(canonical_national_id('1234567'), '1234567')
+        # Superscripts pass str.isdigit() but are not digits anyone typed.
+        self.assertEqual(canonical_national_id('¹²³⁴⁵⁶⁷⁸'), '¹²³⁴⁵⁶⁷⁸')
 
 
 class PersonReportsApiTests(APITestCase):
@@ -83,6 +85,12 @@ class PersonReportsApiTests(APITestCase):
     def test_rejects_a_malformed_id(self):
         self.client.force_authenticate(self.staff)
         self.assertEqual(self.get('12').status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_rejects_a_superscript_id(self):
+        # str.isdigit() accepts superscripts, which int() then refuses.
+        self.client.force_authenticate(self.staff)
+        self.assertEqual(self.get('⁰⁰¹²³⁴⁵⁶⁷⁸').status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(self.get('¹²³⁴⁵⁶⁷⁸').status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_console_users_read_patients_do_not(self):
         self.assertEqual(self.get().status_code, status.HTTP_401_UNAUTHORIZED)

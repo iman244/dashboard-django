@@ -6,7 +6,7 @@ numbers are Excel's: row 1 holds the headers, so the first data row is 2.
 from collections import defaultdict
 
 from .layouts import LAYOUTS
-from .national_id import EXCEL_NATIONAL_ID_COLUMNS, canonical_national_id
+from .national_id import EXCEL_NATIONAL_ID_COLUMNS, canonical_national_id, is_national_id
 
 LISTED = 20
 FIRST_DATA_ROW = 2
@@ -51,7 +51,7 @@ def check_sheet(slug, rows, columns):
             value = canonical_national_id(row.get(id_column))
             if value in (None, ''):
                 blank.append(number)
-            elif not (isinstance(value, str) and len(value) == 10 and value.isdigit()):
+            elif not is_national_id(value):
                 invalid.append({'row': number, 'value': str(value)})
             else:
                 seen[value].append(number)

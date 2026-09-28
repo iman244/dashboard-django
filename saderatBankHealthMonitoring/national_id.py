@@ -9,6 +9,7 @@ patient's files across two entries without raising anything.
 
 The client normalizes too. This is the guarantee; that is the courtesy.
 """
+import re
 
 # Persian (U+06F0..) and Arabic-Indic (U+0660..) digits, in order.
 _DIGIT_MAP = str.maketrans(
@@ -44,6 +45,15 @@ def canonical_national_id(value):
     if isinstance(value, int):
         value = str(value)
     value = normalize_national_id(value)
-    if isinstance(value, str) and value.isdigit() and 8 <= len(value) <= 9:
+    if isinstance(value, str) and re.fullmatch(r'[0-9]{8,9}', value):
         return value.zfill(10)
     return value
+
+
+def is_national_id(value):
+    """Whether `value` is exactly ten ASCII digits.
+
+    Not `str.isdigit()`: it also accepts superscripts such as '²', which the
+    database lookups would never match and `int()` refuses.
+    """
+    return isinstance(value, str) and re.fullmatch(r'[0-9]{10}', value) is not None
