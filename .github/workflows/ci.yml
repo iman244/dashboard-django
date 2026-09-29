@@ -65,23 +65,43 @@ jobs:
     # Only pushed tags deploy. Branch pushes, PRs and manual runs check only.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
+    # A release-candidate tag (1.2.0-rc.1) rehearses on staging; the plain tag
+    # on the same commit (1.2.0) promotes it to production. See the platform
+    # README, "Staging".
+    #
+    # Staging's configuration is the STAGING_* secrets, sent under the plain
+    # names. Each one is written `staging && STAGING_X || !staging && X || ''`,
+    # not `staging && STAGING_X || X`: GitHub's `a && b || c` returns c when b
+    # is empty, so the short form would hand a staging run production's value
+    # whenever a staging secret is missing. This way it gets an empty value, and
+    # deploy.sh refuses to deploy without the password, secret key and
+    # hostnames. Only ADMIN_* falls back to production's, so the account you
+    # already know works on staging. Production's hostnames live in the
+    # server's .env, and deploy.sh ignores API_HOST there; the production
+    # literals below are only what the probes hit.
+    env:
+      DEPLOY_ENV: ${{ contains(github.ref_name, '-rc.') && 'staging' || 'production' }}
+      WEB_HOST: ${{ contains(github.ref_name, '-rc.') && secrets.STAGING_WEB_HOST || !contains(github.ref_name, '-rc.') && 'mainreport.ir' || '' }}
+      API_HOST: ${{ contains(github.ref_name, '-rc.') && secrets.STAGING_API_HOST || !contains(github.ref_name, '-rc.') && 'api.mainreport.ir' || '' }}
     steps:
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.2.5
         env:
           DEPLOY_SHA: ${{ github.sha }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          SECRET_KEY: ${{ secrets.SECRET_KEY }}
-          ALLOWED_HOSTS: ${{ secrets.ALLOWED_HOSTS }}
-          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
-          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
-          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          DB_PASSWORD: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_DB_PASSWORD || env.DEPLOY_ENV != 'staging' && secrets.DB_PASSWORD || '' }}
+          SECRET_KEY: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_SECRET_KEY || env.DEPLOY_ENV != 'staging' && secrets.SECRET_KEY || '' }}
+          ALLOWED_HOSTS: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_ALLOWED_HOSTS || env.DEPLOY_ENV != 'staging' && secrets.ALLOWED_HOSTS || '' }}
+          ADMIN_USERNAME: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_ADMIN_USERNAME || secrets.ADMIN_USERNAME }}
+          ADMIN_EMAIL: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_ADMIN_EMAIL || secrets.ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
           # Arvan object storage. Local development uses MinIO from
-          # mainreport-platform's `dev` compose profile instead.
-          S3_ENDPOINT_URL: ${{ secrets.S3_ENDPOINT_URL }}
-          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
-          S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
-          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          # mainreport-platform's `dev` compose profile instead. Staging never
+          # receives production's storage keys: without STAGING_S3_* its image
+          # uploads are off.
+          S3_ENDPOINT_URL: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_S3_ENDPOINT_URL || env.DEPLOY_ENV != 'staging' && secrets.S3_ENDPOINT_URL || '' }}
+          S3_ACCESS_KEY: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_S3_ACCESS_KEY || env.DEPLOY_ENV != 'staging' && secrets.S3_ACCESS_KEY || '' }}
+          S3_SECRET_KEY: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_S3_SECRET_KEY || env.DEPLOY_ENV != 'staging' && secrets.S3_SECRET_KEY || '' }}
+          S3_BUCKET: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_S3_BUCKET || env.DEPLOY_ENV != 'staging' && secrets.S3_BUCKET || '' }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
@@ -89,7 +109,9 @@ jobs:
           # Forwarded into the remote shell, where deploy.sh writes them into
           # /app/.env. DEBUG is absent on purpose: this app reads it without a
           # bool cast, so the string "False" is truthy and would turn debug ON.
-          envs: DEPLOY_SHA,DB_PASSWORD,SECRET_KEY,ALLOWED_HOSTS,ADMIN_USERNAME,ADMIN_EMAIL,ADMIN_PASSWORD,S3_ENDPOINT_URL,S3_ACCESS_KEY,S3_SECRET_KEY,S3_BUCKET
+          # API_HOST matters only to a staging run, which writes it into
+          # /app/.env.staging instead.
+          envs: DEPLOY_ENV,DEPLOY_SHA,API_HOST,DB_PASSWORD,SECRET_KEY,ALLOWED_HOSTS,ADMIN_USERNAME,ADMIN_EMAIL,ADMIN_PASSWORD,S3_ENDPOINT_URL,S3_ACCESS_KEY,S3_SECRET_KEY,S3_BUCKET
           command_timeout: 30m
           # /app is a clone of mainreport-platform, where deploy.sh lives. Nothing
           # else updates it, so refresh it here: the script has to be current at
@@ -101,7 +123,7 @@ jobs:
             git -C /app fetch --quiet origin main
             git -C /app reset --quiet --hard origin/main
             chmod +x /app/deploy.sh
-            /app/deploy.sh django
+            /app/deploy.sh --env "$DEPLOY_ENV" django
 
       # A container can be "Up" and still answer 502. `docker compose ps` says
       # nothing about HTTP, so the deploy above can report success while the
@@ -119,6 +141,7 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
+          envs: DEPLOY_ENV,WEB_HOST,API_HOST
           command_timeout: 5m
           script: |
             # Not `set -e`: every host must be probed and reported, and a
@@ -141,12 +164,17 @@ jobs:
               # refuse. 000, 5xx and 404 on a path that should exist are not.
               case "$code" in 2??|3??|401|403) ;; *) failed=1 ;; esac
             }
-            probe mainreport.ir /
-            probe api.mainreport.ir /api/saderat-bank-health-monitoring/monitoring-types/
-            probe api.mainreport.ir /static/admin/css/base.css
+            probe "$WEB_HOST" /
+            probe "$API_HOST" /api/saderat-bank-health-monitoring/monitoring-types/
+            probe "$API_HOST" /static/admin/css/base.css
             echo
-            echo "--- last 30 lines of django, in case it answered badly ---"
-            docker compose -f /app/compose.yml logs --tail=30 --no-color django 2>&1 || true
+            echo "--- last 30 lines of ${DEPLOY_ENV} django, in case it answered badly ---"
+            if [ "$DEPLOY_ENV" = staging ]; then
+              docker compose -f /app/compose.staging.yml --env-file /app/.env.staging \
+                logs --tail=30 --no-color django 2>&1 || true
+            else
+              docker compose -f /app/compose.yml logs --tail=30 --no-color django 2>&1 || true
+            fi
             exit "$failed"
 
       - name: Does it actually serve? (from the runner, outside Iran)
@@ -160,8 +188,8 @@ jobs:
           # and takes the whole deploy red for a result it was only printing.
           set +e
           for url in \
-            http://mainreport.ir/ \
-            http://api.mainreport.ir/api/saderat-bank-health-monitoring/monitoring-types/
+            "http://${WEB_HOST}/" \
+            "http://${API_HOST}/api/saderat-bank-health-monitoring/monitoring-types/"
           do
             code="$(curl -sS -o /dev/null -m 25 -w '%{http_code}' "$url" 2>/dev/null)"
             code="${code:-000}"
@@ -172,7 +200,7 @@ jobs:
           # is printed because a browser tries HTTPS first, which is how the
           # 2026-09-22 outage looked to users while every container was Up.
           echo "  --- https, for information ---"
-          for url in https://mainreport.ir/ https://api.mainreport.ir/; do
+          for url in "https://${WEB_HOST}/" "https://${API_HOST}/"; do
             code="$(curl -sS -o /dev/null -m 15 -w '%{http_code}' "$url" 2>/dev/null)"
             code="${code:-000}"
             echo "  ${url} -> ${code}"
