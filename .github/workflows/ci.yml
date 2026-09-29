@@ -68,27 +68,34 @@ jobs:
     # A release-candidate tag (1.2.0-rc.1) rehearses on staging; the plain tag
     # on the same commit (1.2.0) promotes it to production. See the platform
     # README, "Staging".
+    #
+    # Staging's configuration is the STAGING_* secrets, sent under the plain
+    # names. `a && b || c` returns c when b is empty, so a missing STAGING_
+    # secret sends production's value; deploy.sh refuses that for the password,
+    # secret key and hostname. ADMIN_* and S3_* fall back to production's on
+    # purpose. Production's hostnames live in the server's .env, and deploy.sh
+    # ignores API_HOST there; the literals below are only what the probes hit.
     env:
       DEPLOY_ENV: ${{ contains(github.ref_name, '-rc.') && 'staging' || 'production' }}
-      WEB_HOST: ${{ contains(github.ref_name, '-rc.') && 'staging.mainreport.ir' || 'mainreport.ir' }}
-      API_HOST: ${{ contains(github.ref_name, '-rc.') && 'api.staging.mainreport.ir' || 'api.mainreport.ir' }}
+      WEB_HOST: ${{ contains(github.ref_name, '-rc.') && secrets.STAGING_WEB_HOST || 'mainreport.ir' }}
+      API_HOST: ${{ contains(github.ref_name, '-rc.') && secrets.STAGING_API_HOST || 'api.mainreport.ir' }}
     steps:
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.2.5
         env:
           DEPLOY_SHA: ${{ github.sha }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          SECRET_KEY: ${{ secrets.SECRET_KEY }}
-          ALLOWED_HOSTS: ${{ secrets.ALLOWED_HOSTS }}
-          ADMIN_USERNAME: ${{ secrets.ADMIN_USERNAME }}
-          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
-          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          DB_PASSWORD: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_DB_PASSWORD || secrets.DB_PASSWORD }}
+          SECRET_KEY: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_SECRET_KEY || secrets.SECRET_KEY }}
+          ALLOWED_HOSTS: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_ALLOWED_HOSTS || secrets.ALLOWED_HOSTS }}
+          ADMIN_USERNAME: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_ADMIN_USERNAME || secrets.ADMIN_USERNAME }}
+          ADMIN_EMAIL: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_ADMIN_EMAIL || secrets.ADMIN_EMAIL }}
+          ADMIN_PASSWORD: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
           # Arvan object storage. Local development uses MinIO from
           # mainreport-platform's `dev` compose profile instead.
-          S3_ENDPOINT_URL: ${{ secrets.S3_ENDPOINT_URL }}
-          S3_ACCESS_KEY: ${{ secrets.S3_ACCESS_KEY }}
-          S3_SECRET_KEY: ${{ secrets.S3_SECRET_KEY }}
-          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_ENDPOINT_URL: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_S3_ENDPOINT_URL || secrets.S3_ENDPOINT_URL }}
+          S3_ACCESS_KEY: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_S3_ACCESS_KEY || secrets.S3_ACCESS_KEY }}
+          S3_SECRET_KEY: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_S3_SECRET_KEY || secrets.S3_SECRET_KEY }}
+          S3_BUCKET: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_S3_BUCKET || secrets.S3_BUCKET }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
@@ -96,9 +103,9 @@ jobs:
           # Forwarded into the remote shell, where deploy.sh writes them into
           # /app/.env. DEBUG is absent on purpose: this app reads it without a
           # bool cast, so the string "False" is truthy and would turn debug ON.
-          # A staging run receives production's DB_PASSWORD and SECRET_KEY too,
-          # and deploy.sh drops them in favour of staging's own.
-          envs: DEPLOY_ENV,DEPLOY_SHA,DB_PASSWORD,SECRET_KEY,ALLOWED_HOSTS,ADMIN_USERNAME,ADMIN_EMAIL,ADMIN_PASSWORD,S3_ENDPOINT_URL,S3_ACCESS_KEY,S3_SECRET_KEY,S3_BUCKET
+          # API_HOST matters only to a staging run, which writes it into
+          # /app/.env.staging instead.
+          envs: DEPLOY_ENV,DEPLOY_SHA,API_HOST,DB_PASSWORD,SECRET_KEY,ALLOWED_HOSTS,ADMIN_USERNAME,ADMIN_EMAIL,ADMIN_PASSWORD,S3_ENDPOINT_URL,S3_ACCESS_KEY,S3_SECRET_KEY,S3_BUCKET
           command_timeout: 30m
           # /app is a clone of mainreport-platform, where deploy.sh lives. Nothing
           # else updates it, so refresh it here: the script has to be current at
