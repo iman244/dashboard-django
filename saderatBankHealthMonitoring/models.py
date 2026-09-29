@@ -1,3 +1,5 @@
+from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 
 from .national_id import normalize_national_id
@@ -130,3 +132,23 @@ class PatientEntryFile(models.Model):
 
     def __str__(self):
         return f'{self.field_key}: {self.original_name}'
+
+
+class PatientIdentity(models.Model):
+    """Operator-provisioned link; never inferred from a user's editable fields."""
+
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                               related_name='patient_identity')
+    national_id = models.CharField(max_length=10, unique=True, editable=False)
+
+    class Meta:
+        constraints = [models.CheckConstraint(
+            condition=models.Q(national_id__regex=r'^[0-9]{10}$'),
+            name='patient_identity_ascii_national_id')]
+
+    def save(self, *args, **kwargs):
+        self.national_id = normalize_national_id(self.national_id)
+        if not (isinstance(self.national_id, str) and len(self.national_id) == 10
+                and self.national_id.isascii() and self.national_id.isdigit()):
+            raise ValidationError({'national_id': 'A ten-digit national ID is required.'})
+        return super().save(*args, **kwargs)

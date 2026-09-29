@@ -1,6 +1,8 @@
+import re
+
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import ProtectedError
+from django.db.models import Count, ProtectedError
 from rest_framework import generics, permissions, status, viewsets
 from .models import MonitoringType, PatientEntry, SaderatBankHealthMonitoring
 from .s3 import S3Unavailable, build_key, presign_put
@@ -10,15 +12,22 @@ from .serializers import (
     SaderatBankHealthMonitoringRetrieveSerializer,
     SaderatBankHealthMonitoringUploadExcelSerializer,
 )
-from .national_id import normalize_national_id
+from .national_id import (
+    EXCEL_NATIONAL_ID_COLUMNS,
+    canonical_national_id,
+    is_national_id,
+    normalize_national_id,
+)
+from django.db.models import Q
 from .serializers import (
+    PersonReportSerializer,
     PatientEntrySerializer,
     PatientRecordSerializer,
     PresignRequestSerializer,
     SaderatBankHealthMonitoringListSerializer,
 )
-from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.throttling import UserRateThrottle
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -31,23 +40,39 @@ from drf_spectacular.utils import (
 )
 from rest_framework import serializers as drf_serializers
 
+MONITORING_ID_REQUIRED = {'monitoring': ['A numeric monitoring id is required.']}
 
-class IsStaffOrReadOnly(permissions.BasePermission):
-    """Any signed-in user may read; only staff may write.
 
-    Used for monitoring types, which every report references, and for patient
-    records and their uploads. `is_staff` is already on the user payload the
-    dashboard receives, so the client can gate the same actions in its UI.
-    """
+def is_numeric_id(value):
+    """ASCII digits only: `int()` refuses '1.5', and a superscript passes isdigit()."""
+    return re.fullmatch(r'[0-9]+', value) is not None
 
-    message = 'Only staff users may make changes.'
+
+class IsClinicalStaff(permissions.BasePermission):
+    """Patient credentials never grant access to general clinical endpoints."""
 
     def has_permission(self, request, view):
-        if not (request.user and request.user.is_authenticated):
+        return bool(request.user and request.user.is_authenticated
+                    and request.user.is_staff
+                    and not hasattr(request.user, 'patient_identity'))
+
+
+class IsConsoleReader(permissions.BasePermission):
+    """Any signed-in console user reads; only clinical staff write.
+
+    Patient accounts are refused outright: their only door is
+    patient-records/me/, which has its own permission.
+    """
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not (user and user.is_authenticated):
+            return False
+        if hasattr(user, 'patient_identity'):
             return False
         if request.method in permissions.SAFE_METHODS:
             return True
-        return bool(request.user.is_staff)
+        return bool(user.is_staff)
 
 
 @extend_schema_view(
@@ -69,7 +94,14 @@ class MonitoringTypeViewSet(viewsets.ModelViewSet):
     queryset = MonitoringType.objects.all()
     serializer_class = MonitoringTypeSerializer
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsStaffOrReadOnly]
+    permission_classes = [IsConsoleReader]
+
+    def get_queryset(self):
+        # distinct=True: two joins in one query would otherwise multiply.
+        return MonitoringType.objects.annotate(
+            upload_count=Count('monitorings', distinct=True),
+            record_count=Count('entries', distinct=True),
+        ).order_by('id')
 
     def destroy(self, request, *args, **kwargs):
         # The foreign key is PROTECT, so Django refuses to collect a type that
@@ -99,7 +131,7 @@ class MonitoringTypeViewSet(viewsets.ModelViewSet):
 class SaderatBankHealthMonitoringViewSet(viewsets.ModelViewSet):
     queryset = SaderatBankHealthMonitoring.objects.all()
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsConsoleReader]
 
     def get_serializer_class(self):
         if self.action == 'retrieve':
@@ -117,7 +149,12 @@ class SaderatBankHealthMonitoringViewSet(viewsets.ModelViewSet):
         responses={
             200: inline_serializer(
                 name='UploadExcelResponse',
-                fields={'message': drf_serializers.CharField()},
+                fields={
+                    'message': drf_serializers.CharField(),
+                    'id': drf_serializers.IntegerField(),
+                    'issues': drf_serializers.ListField(
+                        child=drf_serializers.DictField()),
+                },
             ),
         },
     )
@@ -126,8 +163,9 @@ class SaderatBankHealthMonitoringViewSet(viewsets.ModelViewSet):
         serializer = SaderatBankHealthMonitoringUploadExcelSerializer(
             data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response({'message': 'Excel uploaded successfully'})
+        instance = serializer.save()
+        return Response({'message': 'Excel uploaded successfully', 'id': instance.id,
+                         'issues': getattr(instance, 'upload_issues', [])})
 
 
 @extend_schema_view(
@@ -154,14 +192,16 @@ class PatientEntryViewSet(viewsets.ModelViewSet):
     queryset = PatientEntry.objects.prefetch_related('files')
     serializer_class = PatientEntrySerializer
     authentication_classes = [JWTAuthentication]
-    # Reading is open to every signed-in user; adding, editing, deleting and
-    # asking for an upload URL (presign is a POST) are staff-only.
-    permission_classes = [IsStaffOrReadOnly]
+    # Any signed-in console user reads; writes need staff; patient accounts
+    # get 403.
+    permission_classes = [IsConsoleReader]
 
     def get_queryset(self):
         queryset = super().get_queryset()
         monitoring = self.request.query_params.get('monitoring')
         if monitoring:
+            if not is_numeric_id(monitoring):
+                raise drf_serializers.ValidationError(MONITORING_ID_REQUIRED)
             queryset = queryset.filter(monitoring_id=monitoring)
         national_id = self.request.query_params.get('national_id')
         if national_id:
@@ -251,20 +291,6 @@ class PatientEntryViewSet(viewsets.ModelViewSet):
         })
 
 
-class PatientRecordsAnonThrottle(AnonRateThrottle):
-    """Caps anonymous reads per IP; signed-in users are not counted at all.
-
-    The rate lives here rather than in settings because it is part of what
-    makes this endpoint safe to leave open, not a tunable. Counts are per
-    process (the default local-memory cache), so the effective ceiling is
-    this times the number of gunicorn workers -- still far too slow to walk
-    the national ID space.
-    """
-
-    scope = 'patient_records'
-    rate = '30/min'
-
-
 class PatientRecordsUserThrottle(UserRateThrottle):
     """A looser cap for signed-in users, counted per account.
 
@@ -284,28 +310,28 @@ class PatientRecordsUserThrottle(UserRateThrottle):
     responses={
         200: PatientRecordSerializer(many=True),
         400: OpenApiResponse(description='Missing or malformed national_id.'),
-        429: OpenApiResponse(description='Too many anonymous requests.'),
+        401: OpenApiResponse(description='Authentication required.'),
+        403: OpenApiResponse(
+            description='Console access required; patient accounts are refused.'),
+        429: OpenApiResponse(description='Too many requests.'),
     },
 )
 class PatientRecordsView(generics.ListAPIView):
-    """Everything recorded for one patient, for display.
+    """Lookup across monitorings for a supplied national ID.
 
-    Open to anonymous callers because the patient portal has no sign-in of
-    its own (the upstream EHR it fronts takes no credentials either). The
-    national ID is therefore the only key: this never answers without a
-    well-formed one, and anonymous callers are throttled.
+    Any signed-in console user reads; patient accounts get 403.
     """
 
     serializer_class = PatientRecordSerializer
     authentication_classes = [JWTAuthentication]
-    permission_classes = [AllowAny]
-    throttle_classes = [PatientRecordsAnonThrottle, PatientRecordsUserThrottle]
+    permission_classes = [IsConsoleReader]
+    throttle_classes = [PatientRecordsUserThrottle]
     pagination_class = None
 
     def list(self, request, *args, **kwargs):
         national_id = normalize_national_id(
             request.query_params.get('national_id', ''))
-        if not (len(national_id) == 10 and national_id.isdigit()):
+        if not is_national_id(national_id):
             return Response(
                 {'national_id': ['A ten-digit national ID is required.']},
                 status=status.HTTP_400_BAD_REQUEST)
@@ -315,3 +341,104 @@ class PatientRecordsView(generics.ListAPIView):
                    .prefetch_related('files')
                    .order_by('monitoring__name_en'))
         return Response(self.get_serializer(records, many=True).data)
+
+
+@extend_schema(
+    summary='Excel uploads that mention a national ID',
+    parameters=[
+        OpenApiParameter(
+            'national_id', str, required=True,
+            description='Ten digits; Persian and Arabic-Indic digits accepted.'),
+        OpenApiParameter(
+            'monitoring', int, required=False,
+            description='Limit to one monitoring and include the rows.'),
+    ],
+    responses={
+        200: PersonReportSerializer(many=True),
+        400: OpenApiResponse(
+            description='Missing or malformed national_id or monitoring.'),
+        401: OpenApiResponse(description='Authentication required.'),
+        403: OpenApiResponse(
+            description='Console access required; patient accounts are refused.'),
+        429: OpenApiResponse(description='Too many requests.'),
+    },
+)
+class PersonReportsView(generics.ListAPIView):
+    """Which Excel uploads contain rows for one person.
+
+    Any signed-in console user reads; patient accounts get 403.
+
+    The rows live in each upload's `json` blob, so Postgres filters the
+    candidates with jsonb containment and the rows are counted here. Uploads
+    made before ids were stored as text hold them as numbers without their
+    leading zeros, so those spellings are searched too.
+    """
+
+    serializer_class = PersonReportSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsConsoleReader]
+    throttle_classes = [PatientRecordsUserThrottle]
+    pagination_class = None
+
+    def list(self, request, *args, **kwargs):
+        national_id = canonical_national_id(normalize_national_id(
+            request.query_params.get('national_id', '')))
+        if not is_national_id(national_id):
+            return Response(
+                {'national_id': ['A ten-digit national ID is required.']},
+                status=status.HTTP_400_BAD_REQUEST)
+        monitoring = request.query_params.get('monitoring')
+        if monitoring is not None and not is_numeric_id(monitoring):
+            return Response(MONITORING_ID_REQUIRED,
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        spellings = {national_id, national_id.lstrip('0'), int(national_id)}
+        query = Q()
+        for column in EXCEL_NATIONAL_ID_COLUMNS:
+            for spelling in spellings:
+                query |= Q(json__contains=[{column: spelling}])
+
+        candidates = SaderatBankHealthMonitoring.objects.filter(query)
+        if monitoring:
+            candidates = candidates.filter(type_id=int(monitoring))
+        uploads = []
+        for upload in (candidates.select_related('type')
+                       .order_by('-created_at', '-id')):
+            matched = [row for row in upload.json or []
+                       if isinstance(row, dict) and any(
+                           canonical_national_id(row.get(column)) == national_id
+                           for column in EXCEL_NATIONAL_ID_COLUMNS)]
+            upload.match_count = len(matched)
+            # Only this person's rows, and only for one monitoring: the
+            # patient-in-campaign page never downloads a whole upload.
+            if monitoring:
+                upload.rows = matched
+            if matched:
+                uploads.append(upload)
+        return Response(self.get_serializer(uploads, many=True).data)
+
+
+@extend_schema(
+    summary='The authenticated patient’s own monitoring records',
+    responses={200: PatientRecordSerializer(many=True),
+               400: OpenApiResponse(description='Patient selection is not accepted.'),
+               401: OpenApiResponse(description='Authentication required.'),
+               403: OpenApiResponse(description='A patient identity is required.')},
+)
+class OwnPatientRecordsView(generics.ListAPIView):
+    serializer_class = PatientRecordSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [PatientRecordsUserThrottle]
+    pagination_class = None
+
+    def get_queryset(self):
+        from rest_framework.exceptions import PermissionDenied, ValidationError
+        identity = getattr(self.request.user, 'patient_identity', None)
+        if identity is None or self.request.user.is_staff:
+            raise PermissionDenied('A patient identity is required.')
+        if self.request.query_params:
+            raise ValidationError('Patient selection is not accepted.')
+        return (PatientEntry.objects.filter(national_id=identity.national_id)
+                .select_related('monitoring').prefetch_related('files')
+                .order_by('monitoring__name_en'))

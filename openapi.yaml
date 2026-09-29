@@ -82,6 +82,32 @@ paths:
       responses:
         '200':
           description: No response body
+  /api/auth/patient/jwt/create/:
+    post:
+      operationId: auth_patient_jwt_create_create
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatientTokenRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatientTokenRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatientTokenRequest'
+        required: true
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatientToken'
+          description: ''
   /api/auth/users/:
     get:
       operationId: auth_users_list
@@ -116,7 +142,6 @@ paths:
         required: true
       security:
       - jwtAuth: []
-      - {}
       responses:
         '201':
           content:
@@ -1039,12 +1064,9 @@ paths:
     get:
       operationId: saderat_bank_health_monitoring_patient_records_list
       description: |-
-        Everything recorded for one patient, for display.
+        Lookup across monitorings for a supplied national ID.
 
-        Open to anonymous callers because the patient portal has no sign-in of
-        its own (the upstream EHR it fronts takes no credentials either). The
-        national ID is therefore the only key: this never answers without a
-        well-formed one, and anonymous callers are throttled.
+        Any signed-in console user reads; patient accounts get 403.
       summary: A patient's records across every monitoring
       parameters:
       - in: query
@@ -1057,7 +1079,6 @@ paths:
       - saderat-bank-health-monitoring
       security:
       - jwtAuth: []
-      - {}
       responses:
         '200':
           content:
@@ -1069,8 +1090,81 @@ paths:
           description: ''
         '400':
           description: Missing or malformed national_id.
+        '401':
+          description: Authentication required.
+        '403':
+          description: Console access required; patient accounts are refused.
         '429':
-          description: Too many anonymous requests.
+          description: Too many requests.
+  /api/saderat-bank-health-monitoring/patient-records/me/:
+    get:
+      operationId: saderat_bank_health_monitoring_patient_records_me_list
+      summary: The authenticated patient’s own monitoring records
+      tags:
+      - saderat-bank-health-monitoring
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PatientRecord'
+          description: ''
+        '400':
+          description: Patient selection is not accepted.
+        '401':
+          description: Authentication required.
+        '403':
+          description: A patient identity is required.
+  /api/saderat-bank-health-monitoring/person-reports/:
+    get:
+      operationId: saderat_bank_health_monitoring_person_reports_list
+      description: |-
+        Which Excel uploads contain rows for one person.
+
+        Any signed-in console user reads; patient accounts get 403.
+
+        The rows live in each upload's `json` blob, so Postgres filters the
+        candidates with jsonb containment and the rows are counted here. Uploads
+        made before ids were stored as text hold them as numbers without their
+        leading zeros, so those spellings are searched too.
+      summary: Excel uploads that mention a national ID
+      parameters:
+      - in: query
+        name: monitoring
+        schema:
+          type: integer
+        description: Limit to one monitoring and include the rows.
+      - in: query
+        name: national_id
+        schema:
+          type: string
+        description: Ten digits; Persian and Arabic-Indic digits accepted.
+        required: true
+      tags:
+      - saderat-bank-health-monitoring
+      security:
+      - jwtAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PersonReport'
+          description: ''
+        '400':
+          description: Missing or malformed national_id or monitoring.
+        '401':
+          description: Authentication required.
+        '403':
+          description: Console access required; patient accounts are refused.
+        '429':
+          description: Too many requests.
 components:
   schemas:
     Activation:
@@ -1095,8 +1189,70 @@ components:
       required:
       - token
       - uid
+    CampaignRef:
+      type: object
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        slug:
+          type: string
+          maxLength: 16
+          pattern: ^[-a-zA-Z0-9_]+$
+        name_en:
+          type: string
+          maxLength: 64
+        name_fa:
+          type: string
+          maxLength: 64
+      required:
+      - id
+      - name_en
+      - name_fa
+      - slug
     MonitoringType:
       type: object
+      description: A campaign, with its upload and record counts.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        slug:
+          type: string
+          maxLength: 16
+          pattern: ^[-a-zA-Z0-9_]+$
+        name_en:
+          type: string
+          maxLength: 64
+        name_fa:
+          type: string
+          maxLength: 64
+        field_schema: {}
+        upload_count:
+          type: integer
+          readOnly: true
+          default: 0
+        record_count:
+          type: integer
+          readOnly: true
+          default: 0
+      required:
+      - id
+      - name_en
+      - name_fa
+      - record_count
+      - slug
+      - upload_count
+    MonitoringTypeFields:
+      type: object
+      description: |-
+        A monitoring type's own fields, with no campaign counts.
+
+        Used wherever a type is nested inside another record (e.g.
+        PatientRecordSerializer) rather than listed by MonitoringTypeViewSet:
+        those instances are never annotated with upload_count/record_count, and
+        the fields' own defaults would otherwise render plausible-looking zeros
+        that are not actually counts of anything.
       properties:
         id:
           type: integer
@@ -1119,6 +1275,7 @@ components:
       - slug
     MonitoringTypeRequest:
       type: object
+      description: A campaign, with its upload and record counts.
       properties:
         slug:
           type: string
@@ -1169,6 +1326,7 @@ components:
       - uid
     PatchedMonitoringTypeRequest:
       type: object
+      description: A campaign, with its upload and record counts.
       properties:
         slug:
           type: string
@@ -1347,7 +1505,7 @@ components:
           readOnly: true
         monitoring:
           allOf:
-          - $ref: '#/components/schemas/MonitoringType'
+          - $ref: '#/components/schemas/MonitoringTypeFields'
           readOnly: true
         national_id:
           type: string
@@ -1370,6 +1528,70 @@ components:
       - national_id
       - updated_at
       - values
+    PatientToken:
+      type: object
+      properties:
+        access:
+          type: string
+          readOnly: true
+        refresh:
+          type: string
+          readOnly: true
+      required:
+      - access
+      - refresh
+    PatientTokenRequest:
+      type: object
+      properties:
+        national_id:
+          type: string
+          writeOnly: true
+          minLength: 1
+          maxLength: 32
+        password:
+          type: string
+          writeOnly: true
+          minLength: 1
+      required:
+      - national_id
+      - password
+    PersonReport:
+      type: object
+      description: One Excel upload that mentions a person; `rows` only when asked
+        for.
+      properties:
+        id:
+          type: integer
+          readOnly: true
+        name:
+          type: string
+          maxLength: 255
+        type:
+          type: string
+          readOnly: true
+        monitoring:
+          allOf:
+          - $ref: '#/components/schemas/CampaignRef'
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+          readOnly: true
+        match_count:
+          type: integer
+          readOnly: true
+        rows:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
+      required:
+      - created_at
+      - id
+      - match_count
+      - monitoring
+      - name
+      - type
     PresignRequestRequest:
       type: object
       description: What the browser must state before Django will sign anything.
@@ -1618,7 +1840,16 @@ components:
       properties:
         message:
           type: string
+        id:
+          type: integer
+        issues:
+          type: array
+          items:
+            type: object
+            additionalProperties: {}
       required:
+      - id
+      - issues
       - message
     User:
       type: object

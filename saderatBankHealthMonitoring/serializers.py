@@ -9,8 +9,14 @@ from .models import (
     PatientEntryFile,
     SaderatBankHealthMonitoring,
 )
-from .national_id import normalize_national_id
+from .national_id import (
+    EXCEL_NATIONAL_ID_COLUMNS,
+    canonical_national_id,
+    is_national_id,
+    normalize_national_id,
+)
 from .s3 import S3Unavailable, head_object, presign_get
+from .upload_checks import check_sheet
 from drf_spectacular.utils import extend_schema_field
 
 from .schema import (
@@ -30,16 +36,38 @@ def full_national_id(value):
     records up by the full ten digits.
     """
     national_id = normalize_national_id(value)
-    if not (len(national_id) == 10 and national_id.isdigit()):
+    if not is_national_id(national_id):
         raise serializers.ValidationError(
             'A national ID is exactly ten digits.')
     return national_id
 
 
-class MonitoringTypeSerializer(serializers.ModelSerializer):
+class MonitoringTypeFieldsSerializer(serializers.ModelSerializer):
+    """A monitoring type's own fields, with no campaign counts.
+
+    Used wherever a type is nested inside another record (e.g.
+    PatientRecordSerializer) rather than listed by MonitoringTypeViewSet:
+    those instances are never annotated with upload_count/record_count, and
+    the fields' own defaults would otherwise render plausible-looking zeros
+    that are not actually counts of anything.
+    """
+
     class Meta:
         model = MonitoringType
         fields = ['id', 'slug', 'name_en', 'name_fa', 'field_schema']
+
+
+class MonitoringTypeSerializer(MonitoringTypeFieldsSerializer):
+    """A campaign, with its upload and record counts."""
+
+    # Annotated by MonitoringTypeViewSet.get_queryset; absent on a freshly
+    # created instance, hence the defaults.
+    upload_count = serializers.IntegerField(read_only=True, default=0)
+    record_count = serializers.IntegerField(read_only=True, default=0)
+
+    class Meta(MonitoringTypeFieldsSerializer.Meta):
+        fields = MonitoringTypeFieldsSerializer.Meta.fields + [
+            'upload_count', 'record_count']
 
 
 def monitoring_type_field():
@@ -93,26 +121,27 @@ class SaderatBankHealthMonitoringUploadExcelSerializer(
         file = validated_data['file']
 
         try:
-            string_columns = {
-                'personel.کد ملی': str,
-                'تجمیع نتایج.کد ملی': str
-            }
-
-            df = pd.read_excel(file, dtype=string_columns)
-
-            df = df.astype(object).where(pd.notnull(df), None)
-            json_data = df.to_dict(orient="records")
-
+            # Every cell as text: a component parses a number only where it
+            # needs one. Empty cells stay NaN here and become None below.
+            df = pd.read_excel(file, dtype=str)
         except Exception as e:
-            raise serializers.ValidationError(
-                f'Error reading Excel file: {str(e)}')
+            raise serializers.ValidationError({
+                'file': ['The file could not be read.'],
+                'issues': [{'level': 'error', 'code': 'unreadable', 'detail': str(e)}],
+            })
+
+        df = df.astype(object).where(pd.notnull(df), None)
+        json_data = df.to_dict(orient="records")
+        for row in json_data:
+            for column in EXCEL_NATIONAL_ID_COLUMNS:
+                if column in row:
+                    row[column] = canonical_national_id(row[column])
+
+        warnings = check_sheet(type.slug, json_data, list(df.columns))
 
         instance = SaderatBankHealthMonitoring.objects.create(
-            name=name,
-            type=type,
-            json=json_data
-        )
-
+            name=name, type=type, json=json_data)
+        instance.upload_issues = warnings
         return instance
 
 
@@ -343,7 +372,7 @@ class PatientRecordSerializer(serializers.ModelSerializer):
     the names and field_schema needed to label and order what it holds.
     """
 
-    monitoring = MonitoringTypeSerializer(read_only=True)
+    monitoring = MonitoringTypeFieldsSerializer(read_only=True)
     files = PatientEntryFileSerializer(many=True, read_only=True)
 
     class Meta:
@@ -351,3 +380,31 @@ class PatientRecordSerializer(serializers.ModelSerializer):
         fields = ['id', 'monitoring', 'national_id', 'values', 'files',
                   'updated_at']
         read_only_fields = fields
+
+
+class CampaignRefSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MonitoringType
+        fields = ['id', 'slug', 'name_en', 'name_fa']
+
+
+class PersonReportSerializer(serializers.ModelSerializer):
+    """One Excel upload that mentions a person; `rows` only when asked for."""
+
+    type = serializers.SlugRelatedField(slug_field='slug', read_only=True)
+    monitoring = CampaignRefSerializer(source='type', read_only=True)
+    match_count = serializers.IntegerField(read_only=True)
+    # Not read_only: drf-spectacular marks every read-only field required, and
+    # `rows` is absent unless the request names a monitoring. The view only
+    # lists, so nothing ever writes through this field.
+    rows = serializers.ListField(child=serializers.DictField(), required=False)
+
+    class Meta:
+        model = SaderatBankHealthMonitoring
+        fields = ['id', 'name', 'type', 'monitoring', 'created_at', 'match_count', 'rows']
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if not hasattr(instance, 'rows'):
+            data.pop('rows', None)
+        return data
