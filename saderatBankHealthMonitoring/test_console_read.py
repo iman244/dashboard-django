@@ -98,3 +98,22 @@ class CampaignCountTests(APITestCase):
             API + 'patient-records/?national_id=0012345678').data
         self.assertNotIn('upload_count', records[0]['monitoring'])
         self.assertNotIn('record_count', records[0]['monitoring'])
+
+
+class PatientEntryNationalIdFilterTests(APITestCase):
+    """The ?national_id= filter finds an entry however the id was typed."""
+
+    @classmethod
+    def setUpTestData(cls):
+        step_2 = MonitoringType.objects.get(slug='step_2')
+        cls.entry = PatientEntry.objects.create(
+            monitoring=step_2, national_id='0850157269', values={})
+        cls.viewer = get_user_model().objects.create_user('viewer', password='pw')
+
+    def test_lost_leading_zero_and_persian_digits_still_find_the_entry(self):
+        self.client.force_authenticate(self.viewer)
+        for typed in ('0850157269', '850157269', '۰۸۵۰۱۵۷۲۶۹'):
+            with self.subTest(typed=typed):
+                response = self.client.get(API + 'patient-entries/', {'national_id': typed})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual([row['id'] for row in response.json()], [self.entry.id])
