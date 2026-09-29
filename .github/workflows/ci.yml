@@ -70,32 +70,38 @@ jobs:
     # README, "Staging".
     #
     # Staging's configuration is the STAGING_* secrets, sent under the plain
-    # names. `a && b || c` returns c when b is empty, so a missing STAGING_
-    # secret sends production's value; deploy.sh refuses that for the password,
-    # secret key and hostname. ADMIN_* and S3_* fall back to production's on
-    # purpose. Production's hostnames live in the server's .env, and deploy.sh
-    # ignores API_HOST there; the literals below are only what the probes hit.
+    # names. Each one is written `staging && STAGING_X || !staging && X || ''`,
+    # not `staging && STAGING_X || X`: GitHub's `a && b || c` returns c when b
+    # is empty, so the short form would hand a staging run production's value
+    # whenever a staging secret is missing. This way it gets an empty value, and
+    # deploy.sh refuses to deploy without the password, secret key and
+    # hostnames. Only ADMIN_* falls back to production's, so the account you
+    # already know works on staging. Production's hostnames live in the
+    # server's .env, and deploy.sh ignores API_HOST there; the production
+    # literals below are only what the probes hit.
     env:
       DEPLOY_ENV: ${{ contains(github.ref_name, '-rc.') && 'staging' || 'production' }}
-      WEB_HOST: ${{ contains(github.ref_name, '-rc.') && secrets.STAGING_WEB_HOST || 'mainreport.ir' }}
-      API_HOST: ${{ contains(github.ref_name, '-rc.') && secrets.STAGING_API_HOST || 'api.mainreport.ir' }}
+      WEB_HOST: ${{ contains(github.ref_name, '-rc.') && secrets.STAGING_WEB_HOST || !contains(github.ref_name, '-rc.') && 'mainreport.ir' || '' }}
+      API_HOST: ${{ contains(github.ref_name, '-rc.') && secrets.STAGING_API_HOST || !contains(github.ref_name, '-rc.') && 'api.mainreport.ir' || '' }}
     steps:
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.2.5
         env:
           DEPLOY_SHA: ${{ github.sha }}
-          DB_PASSWORD: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_DB_PASSWORD || secrets.DB_PASSWORD }}
-          SECRET_KEY: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_SECRET_KEY || secrets.SECRET_KEY }}
-          ALLOWED_HOSTS: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_ALLOWED_HOSTS || secrets.ALLOWED_HOSTS }}
+          DB_PASSWORD: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_DB_PASSWORD || env.DEPLOY_ENV != 'staging' && secrets.DB_PASSWORD || '' }}
+          SECRET_KEY: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_SECRET_KEY || env.DEPLOY_ENV != 'staging' && secrets.SECRET_KEY || '' }}
+          ALLOWED_HOSTS: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_ALLOWED_HOSTS || env.DEPLOY_ENV != 'staging' && secrets.ALLOWED_HOSTS || '' }}
           ADMIN_USERNAME: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_ADMIN_USERNAME || secrets.ADMIN_USERNAME }}
           ADMIN_EMAIL: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_ADMIN_EMAIL || secrets.ADMIN_EMAIL }}
           ADMIN_PASSWORD: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_ADMIN_PASSWORD || secrets.ADMIN_PASSWORD }}
           # Arvan object storage. Local development uses MinIO from
-          # mainreport-platform's `dev` compose profile instead.
-          S3_ENDPOINT_URL: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_S3_ENDPOINT_URL || secrets.S3_ENDPOINT_URL }}
-          S3_ACCESS_KEY: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_S3_ACCESS_KEY || secrets.S3_ACCESS_KEY }}
-          S3_SECRET_KEY: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_S3_SECRET_KEY || secrets.S3_SECRET_KEY }}
-          S3_BUCKET: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_S3_BUCKET || secrets.S3_BUCKET }}
+          # mainreport-platform's `dev` compose profile instead. Staging never
+          # receives production's storage keys: without STAGING_S3_* its image
+          # uploads are off.
+          S3_ENDPOINT_URL: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_S3_ENDPOINT_URL || env.DEPLOY_ENV != 'staging' && secrets.S3_ENDPOINT_URL || '' }}
+          S3_ACCESS_KEY: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_S3_ACCESS_KEY || env.DEPLOY_ENV != 'staging' && secrets.S3_ACCESS_KEY || '' }}
+          S3_SECRET_KEY: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_S3_SECRET_KEY || env.DEPLOY_ENV != 'staging' && secrets.S3_SECRET_KEY || '' }}
+          S3_BUCKET: ${{ env.DEPLOY_ENV == 'staging' && secrets.STAGING_S3_BUCKET || env.DEPLOY_ENV != 'staging' && secrets.S3_BUCKET || '' }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
