@@ -9,6 +9,7 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
+from datetime import timedelta
 import os
 import environ
 from pathlib import Path
@@ -142,6 +143,12 @@ SPECTACULAR_SETTINGS = {
 
 SIMPLE_JWT = {
    'AUTH_HEADER_TYPES': ('JWT',),
+   # Loose on purpose. The default five-minute access token expired while
+   # operators filled a form and uploaded its images over a slow network, and
+   # every upload after that failed with "Given token not valid". The client
+   # also refreshes and retries on a 401 now; these give that room to work.
+   'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
+   'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
 }
 
 DJOSER = {
