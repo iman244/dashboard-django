@@ -206,9 +206,10 @@ class PatientEntryViewSet(viewsets.ModelViewSet):
         national_id = self.request.query_params.get('national_id')
         if national_id:
             # Folded on the way in, exactly as it was folded on the way to the
-            # database, or a Persian-keyboard lookup would find nothing.
+            # database, or a Persian-keyboard lookup would find nothing; and
+            # padded, since 0850157269 is often typed or copied as 850157269.
             queryset = queryset.filter(
-                national_id=normalize_national_id(national_id))
+                national_id=canonical_national_id(normalize_national_id(national_id)))
         return queryset
 
     def create(self, request, *args, **kwargs):

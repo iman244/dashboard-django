@@ -115,7 +115,10 @@ jobs:
           # API_HOST matters only to a staging run, which writes it into
           # /app/.env.staging instead.
           envs: DEPLOY_ENV,DEPLOY_SHA,API_HOST,DB_PASSWORD,SECRET_KEY,ALLOWED_HOSTS,CORS_ALLOWED_ORIGINS,ADMIN_USERNAME,ADMIN_EMAIL,ADMIN_PASSWORD,S3_ENDPOINT_URL,S3_ACCESS_KEY,S3_SECRET_KEY,S3_BUCKET
-          command_timeout: 30m
+          # Room to wait for the server's deploy lock while a Next.js build
+          # holds it (deploy.sh waits up to an hour), then build: an hour and a
+          # half covers both.
+          command_timeout: 90m
           # /app is a clone of mainreport-platform, where deploy.sh lives. Nothing
           # else updates it, so refresh it here: the script has to be current at
           # the moment it runs, and it cannot update itself while bash is reading
